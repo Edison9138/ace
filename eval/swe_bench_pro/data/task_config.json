@@ -1,0 +1,7 @@
+{
+  "swe_bench_pro": {
+    "test_data": "eval/swe_bench_pro/data/test.jsonl",
+    "val_data": "eval/swe_bench_pro/data/val.jsonl",
+    "train_data": "eval/swe_bench_pro/data/train.jsonl"
+  }
+}
