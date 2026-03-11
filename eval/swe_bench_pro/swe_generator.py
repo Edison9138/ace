@@ -510,6 +510,83 @@ def _load_transport_payload(raw: str) -> dict:
 _TRAJ_PER_MESSAGE_CHARS = 20_000
 
 
+def _extract_commands_from_actions(msg: dict[str, Any]) -> list[str]:
+    """Return normalized assistant commands from mini-swe-agent extra.actions."""
+    extra = msg.get("extra")
+    if not isinstance(extra, dict):
+        return []
+
+    actions = extra.get("actions")
+    if not isinstance(actions, list):
+        return []
+
+    commands: list[str] = []
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        command = action.get("command")
+        if isinstance(command, str) and command.strip():
+            commands.append(command.strip())
+    return commands
+
+
+def _render_tool_call(tool_call: dict[str, Any]) -> str:
+    """Format a tool call into readable trace text."""
+    function = tool_call.get("function")
+    if not isinstance(function, dict):
+        return str(tool_call)
+
+    name = function.get("name")
+    if not isinstance(name, str) or not name.strip():
+        name = "tool"
+    name = name.strip()
+
+    raw_arguments = function.get("arguments")
+    parsed_arguments = _load_transport_payload(raw_arguments)
+
+    if name == "bash":
+        command = parsed_arguments.get("command")
+        if isinstance(command, str) and command.strip():
+            return command.strip()
+        if isinstance(raw_arguments, str) and raw_arguments.strip():
+            return f"bash: {raw_arguments.strip()}"
+        return "bash"
+
+    rendered_args = ""
+    if parsed_arguments:
+        rendered_args = json.dumps(parsed_arguments, sort_keys=True)
+    elif raw_arguments is not None:
+        rendered_args = str(raw_arguments).strip()
+
+    return f"{name}: {rendered_args}" if rendered_args else name
+
+
+def _format_assistant_trace_content(msg: dict[str, Any]) -> str:
+    """Render assistant text plus tool-invocation details for reflector traces."""
+    parts: list[str] = []
+
+    content = msg.get("content")
+    if isinstance(content, str):
+        if content.strip():
+            parts.append(content.strip())
+    elif content not in (None, ""):
+        parts.append(str(content))
+
+    commands = _extract_commands_from_actions(msg)
+    if commands:
+        parts.extend(commands)
+    else:
+        tool_calls = msg.get("tool_calls")
+        if isinstance(tool_calls, list):
+            for tool_call in tool_calls:
+                if not isinstance(tool_call, dict):
+                    parts.append(str(tool_call))
+                    continue
+                parts.append(_render_tool_call(tool_call))
+
+    return "\n\n".join(part for part in parts if part)
+
+
 def _extract_bullet_ids_from_trajectory(
     agent: "DefaultAgent | None",
 ) -> list[str]:
@@ -564,13 +641,17 @@ def _format_trajectory_for_reflector(
     formatted: list[str] = []
     for i, msg in enumerate(trimmed):
         role = msg.get("role", "unknown").upper()
-        content = msg.get("content") or ""
 
         # Skip system message body — it's the playbook + instructions that
         # the reflector already knows about.
         if role == "SYSTEM":
             formatted.append(f"[{i}] SYSTEM: [playbook and agent instructions]")
             continue
+
+        if role == "ASSISTANT":
+            content = _format_assistant_trace_content(msg)
+        else:
+            content = msg.get("content") or ""
 
         # Cap individual messages (like ace-appworld's truncate_output).
         if len(content) > _TRAJ_PER_MESSAGE_CHARS:
