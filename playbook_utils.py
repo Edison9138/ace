@@ -10,18 +10,36 @@ import json
 import re
 from utils import get_section_slug
 
+def _normalize_section_name(section_name):
+    """Normalize section names so headers, curator ops, and slug lookup agree."""
+    return section_name.lower().strip().replace(' ', '_').replace('-', '_').replace('&', 'and').rstrip(':')
+
 def parse_playbook_line(line):
-    """Parse a single playbook line to extract components"""
-    # Pattern: [id] helpful=X harmful=Y :: content
+    """Parse a single playbook line.
+
+    Supports both the canonical counted ACE format and stripped prompt-only
+    bullets that omit helpful/harmful counters.
+    """
+    text = line.strip()
     pattern = r'\[([^\]]+)\]\s*helpful=(\d+)\s*harmful=(\d+)\s*::\s*(.*)'
-    match = re.match(pattern, line.strip())
-    
+    match = re.match(pattern, text)
+
     if match:
         return {
             'id': match.group(1),
             'helpful': int(match.group(2)),
             'harmful': int(match.group(3)),
             'content': match.group(4),
+            'raw_line': line
+        }
+    simple_pattern = r'\[([^\]]+)\]\s*(.*)'
+    match = re.match(simple_pattern, text)
+    if match:
+        return {
+            'id': match.group(1),
+            'helpful': 0,
+            'harmful': 0,
+            'content': match.group(2).strip(),
             'raw_line': line
         }
     return None
@@ -114,7 +132,7 @@ def apply_curator_operations(playbook_text, operations, next_id):
         if line.strip().startswith('##'):
             # Extract section name and normalize it
             section_header = line.strip()[2:].strip()
-            current_section = section_header.lower().replace(' ', '_').replace('&', 'and')
+            current_section = _normalize_section_name(section_header)
             section_line_map[current_section] = i
             if current_section not in sections:
                 sections[current_section] = []
@@ -143,7 +161,7 @@ def apply_curator_operations(playbook_text, operations, next_id):
         if op_type == 'ADD':
             # Normalize section name from operation
             section_raw = op.get('section', 'general')
-            section = section_raw.lower().replace(' ', '_').replace('&', 'and')
+            section = _normalize_section_name(section_raw)
             
             # Check if section exists, if not use 'others'
             if section not in sections and section != 'general':
@@ -185,7 +203,7 @@ def apply_curator_operations(playbook_text, operations, next_id):
                 bullets_to_add = [(s, b) for s, b in bullets_to_add if s != current_section]
             
             section_header = line.strip()[2:].strip()
-            current_section = section_header.lower().replace(' ', '_').replace('&', 'and')
+            current_section = _normalize_section_name(section_header)
         final_lines.append(line)
     
     # Add remaining bullets to current section
