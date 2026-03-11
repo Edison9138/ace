@@ -589,6 +589,12 @@ class ACE:
             
             stats = get_playbook_stats(self.playbook)
             
+            playbook_for_curator = (
+                self.generator.get_playbook_for_curator(self.playbook)
+                if hasattr(self.generator, "get_playbook_for_curator")
+                else self.playbook
+            )
+
             self.playbook, self.next_global_id, operations, _ = self.curator.curate(
                 current_playbook=self.playbook,
                 recent_reflection=reflection_content,
@@ -603,6 +609,7 @@ class ACE:
                 log_dir=log_dir,
                 next_global_id=self.next_global_id,
                 reasoning_trace=extract_reasoning_trace(gen_response),
+                prompt_playbook=playbook_for_curator,
             )
             
             # Run bulletpoint analyzer if enabled
