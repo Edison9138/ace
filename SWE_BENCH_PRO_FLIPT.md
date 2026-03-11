@@ -8,7 +8,7 @@ export OPENAI_API_KEY="sk-..."
 ```
 
 ### 2. Modal Setup
-The eval backend is **Modal only**. Install and authenticate:
+Install and authenticate:
 ```bash
 pip install modal
 modal setup   # opens browser for auth
@@ -26,7 +26,6 @@ uv run python -m eval.swe_bench_pro.run \
   --mode offline \
   --data_jsonl "eval/swe_bench_pro/data/sweap_eval_flipt_v2.jsonl" \
   --config_path "eval/swe_bench_pro/data/task_config.json" \
-  --eval_backend modal \
   --dockerhub_username jefzda \
   --num_epochs 1 \
   --max_num_rounds 1 \
@@ -64,7 +63,6 @@ For subsequent runs, increment the output directory index to avoid collisions:
 |---|---|
 | `--data_jsonl` | Path to the flipt JSONL dataset |
 | `--config_path` | Task config with train/val/test split paths |
-| `--eval_backend` | Must be `modal` |
 | `--dockerhub_username` | DockerHub account hosting SWE-bench Pro images (`jefzda`) |
 | `--num_epochs` | Training epochs |
 | `--max_num_rounds` | Max reflection rounds per sample (each = full agent + eval run) |
