@@ -288,6 +288,7 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
         
     return final_results, error_logs
 
+
 def extract_reasoning_trace(gen_response: str) -> str:
     """Extract the reasoning/trajectory from a generator response.
 
@@ -304,3 +305,15 @@ def extract_reasoning_trace(gen_response: str) -> str:
     except (json.JSONDecodeError, TypeError, ValueError):
         pass
     return gen_response
+
+
+def get_environment_feedback(data_processor, fallback: str) -> str:
+    """Return task-specific environment feedback when the processor provides it."""
+    if data_processor and hasattr(data_processor, "get_last_environment_feedback"):
+        try:
+            feedback = data_processor.get_last_environment_feedback()
+        except Exception:
+            feedback = ""
+        if isinstance(feedback, str) and feedback.strip():
+            return feedback
+    return fallback

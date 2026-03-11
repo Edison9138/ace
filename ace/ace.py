@@ -512,7 +512,10 @@ class ACE:
                     reasoning_trace=extract_reasoning_trace(gen_response),
                     predicted_answer=final_answer,
                     ground_truth=target if not no_ground_truth else None,
-                    environment_feedback="Predicted answer does not match ground truth",
+                    environment_feedback=get_environment_feedback(
+                        data_processor,
+                        "Predicted answer does not match ground truth",
+                    ),
                     bullets_used=playbook_bullets,
                     use_ground_truth=not no_ground_truth,
                     use_json_mode=use_json_mode,
