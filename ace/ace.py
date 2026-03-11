@@ -459,7 +459,12 @@ class ACE:
         question = task_dict.get("question", "")
         context = task_dict.get("context", "")
         target = task_dict.get("target", "")
-        
+        reflector_ground_truth = (
+            self.generator.get_ground_truth_for_reflector(target)
+            if not no_ground_truth
+            else None
+        )
+
         # STEP 1: Initial generation (pre-train)
         print("Generating initial answer...")
         gen_response, bullet_ids, call_info = self.generator.generate(
@@ -510,7 +515,7 @@ class ACE:
                     question=question,
                     reasoning_trace=extract_reasoning_trace(gen_response),
                     predicted_answer=final_answer,
-                    ground_truth=target if not no_ground_truth else None,
+                    ground_truth=reflector_ground_truth,
                     environment_feedback=get_environment_feedback(
                         data_processor,
                         "Predicted answer does not match ground truth",
@@ -555,7 +560,7 @@ class ACE:
                 question=question,
                 reasoning_trace=extract_reasoning_trace(gen_response),
                 predicted_answer=final_answer,
-                ground_truth=target if not no_ground_truth else None,
+                ground_truth=reflector_ground_truth,
                 environment_feedback="Predicted answer matches ground truth",
                 bullets_used=playbook_bullets,
                 use_ground_truth=not no_ground_truth,
