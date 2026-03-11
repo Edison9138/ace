@@ -160,18 +160,6 @@ def load_initial_playbook(path: str) -> str | None:
     return None
 
 
-def resolve_optional_resource_dir(explicit_path: str | None, relative_subdir: str) -> str | None:
-    """Prefer an explicit CLI path, otherwise auto-discover the local SWE repo copy."""
-    if explicit_path:
-        return explicit_path
-
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    candidate = os.path.join(repo_root, "SWE-bench_Pro-os", relative_subdir)
-    if os.path.isdir(candidate):
-        return candidate
-    return None
-
-
 def preprocess_data(task_name: str, config: dict, mode: str, data_processor):
     """Load and process train/val/test splits following the standard ACE pattern.
 
@@ -220,19 +208,6 @@ def main():
         raise ValueError(
             "No raw data path. Provide --data_jsonl or add 'raw_data' to task_config."
         )
-
-    scripts_dir = resolve_optional_resource_dir(args.scripts_dir, "run_scripts")
-    dockerfiles_dir = resolve_optional_resource_dir(
-        args.dockerfiles_dir, "dockerfiles"
-    )
-    if scripts_dir:
-        print(f"Using SWE run scripts from: {scripts_dir}")
-    else:
-        print("SWE run scripts not found locally; missing files will fall back to GitHub")
-    if dockerfiles_dir:
-        print(f"Using SWE dockerfiles from: {dockerfiles_dir}")
-    else:
-        print("SWE dockerfiles not found locally; missing files will fall back to GitHub")
 
     # 2. Build DataProcessor (needed before data loading for process_task_data)
     data_processor = DataProcessor(
