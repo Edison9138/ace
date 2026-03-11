@@ -29,7 +29,7 @@ def load_and_format_samples(jsonl_path: str) -> list[dict]:
         pass_to_pass = row.get("pass_to_pass") or row.get("PASS_TO_PASS", "[]")
 
         sample = {
-            # context: metadata the Generator needs to spin up the right Docker container
+            # context: metadata the generator needs to launch the correct SWE task image
             "context": json.dumps(
                 {
                     "instance_id": row["instance_id"],
@@ -40,7 +40,7 @@ def load_and_format_samples(jsonl_path: str) -> list[dict]:
             ),
             # question: plain text for ACE's reflector/curator
             "question": row["problem_statement"],
-            # target: metadata answer_is_correct needs to run eval_with_docker
+            # target: metadata answer_is_correct needs to run the SWE eval harness
             "target": json.dumps(
                 {
                     "instance_id": row["instance_id"],
