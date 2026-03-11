@@ -134,6 +134,17 @@ class ACE:
             'bulletpoint_analyzer_threshold': config.get('bulletpoint_analyzer_threshold', 0.90)
         }
     
+    def _use_single_pass_accuracy(self, data_processor) -> bool:
+        """Whether the task opts into first-pass accuracy aggregation."""
+        return supports_single_pass_accuracy(data_processor)
+
+    @staticmethod
+    def _accuracy_from_correctness_flags(correct_flags: List[bool]) -> float:
+        """Compute accuracy directly from per-sample correctness flags."""
+        if not correct_flags:
+            return 0.0
+        return sum(1 for is_correct in correct_flags if is_correct) / len(correct_flags)
+
     def _setup_paths(self, save_dir: str, task_name: str, mode: str) -> Tuple[str, str]:
         """
         Setup logging paths and directories.
@@ -749,6 +760,8 @@ class ACE:
             epoch_targets_pre_train = []
             epoch_answers_post_train = []
             epoch_targets_post_train = []
+            epoch_pre_train_correct_flags = []
+            epoch_post_train_correct_flags = []
             
             for step, task_dict in enumerate(train_samples):
                 step += 1
@@ -783,7 +796,21 @@ class ACE:
                     **tracking_dict
                 }
                 pre_train_post_train_results.append(pre_train_post_train_result)
-                
+                epoch_pre_train_correct_flags.append(
+                    bool(
+                        tracking_dict.get("pre_train_result", {}).get(
+                            "is_correct", False
+                        )
+                    )
+                )
+                epoch_post_train_correct_flags.append(
+                    bool(
+                        tracking_dict.get("post_train_result", {}).get(
+                            "is_correct", False
+                        )
+                    )
+                )
+
                 # Save intermediate playbook
                 if step % save_steps == 0:
                     intermediate_path = os.path.join(
@@ -799,12 +826,20 @@ class ACE:
                     print(f"{'='*40}")
                     
                     # Compute training accuracies
-                    pre_train_accuracy = data_processor.evaluate_accuracy(
-                        epoch_answers_pre_train, epoch_targets_pre_train
-                    )
-                    post_train_accuracy = data_processor.evaluate_accuracy(
-                        epoch_answers_post_train, epoch_targets_post_train
-                    )
+                    if self._use_single_pass_accuracy(data_processor):
+                        pre_train_accuracy = self._accuracy_from_correctness_flags(
+                            epoch_pre_train_correct_flags
+                        )
+                        post_train_accuracy = self._accuracy_from_correctness_flags(
+                            epoch_post_train_correct_flags
+                        )
+                    else:
+                        pre_train_accuracy = data_processor.evaluate_accuracy(
+                            epoch_answers_pre_train, epoch_targets_pre_train
+                        )
+                        post_train_accuracy = data_processor.evaluate_accuracy(
+                            epoch_answers_post_train, epoch_targets_post_train
+                        )
                     
                     # Validation evaluation
                     val_results = {}
@@ -1065,6 +1100,8 @@ class ACE:
             epoch_targets_pre_train = []
             epoch_answers_post_train = []
             epoch_targets_post_train = []
+            epoch_pre_train_correct_flags = []
+            epoch_post_train_correct_flags = []
             
             for local_step, task_dict in enumerate(window_samples):
                 global_step += 1
@@ -1102,7 +1139,9 @@ class ACE:
                     **tracking_dict
                 }
                 pre_train_post_train_results.append(pre_train_post_train_result)
-                
+                epoch_pre_train_correct_flags.append(bool(tracking_dict.get("pre_train_result", {}).get("is_correct", False)))
+                epoch_post_train_correct_flags.append(bool(tracking_dict.get("post_train_result", {}).get("is_correct", False)))
+
                 # Save intermediate playbook
                 if global_step % save_steps == 0:
                     intermediate_path = os.path.join(
@@ -1112,12 +1151,20 @@ class ACE:
                         f.write(self.playbook)
             
             # End of window - compute training accuracies for this window
-            pre_train_accuracy = data_processor.evaluate_accuracy(
-                epoch_answers_pre_train, epoch_targets_pre_train
-            )
-            post_train_accuracy = data_processor.evaluate_accuracy(
-                epoch_answers_post_train, epoch_targets_post_train
-            )
+            if self._use_single_pass_accuracy(data_processor):
+                pre_train_accuracy = self._accuracy_from_correctness_flags(
+                    epoch_pre_train_correct_flags
+                )
+                post_train_accuracy = self._accuracy_from_correctness_flags(
+                    epoch_post_train_correct_flags
+                )
+            else:
+                pre_train_accuracy = data_processor.evaluate_accuracy(
+                    epoch_answers_pre_train, epoch_targets_pre_train
+                )
+                post_train_accuracy = data_processor.evaluate_accuracy(
+                    epoch_answers_post_train, epoch_targets_post_train
+                )
             
             window_train_result = {
                 "window": window_idx + 1,
