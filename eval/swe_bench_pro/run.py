@@ -24,10 +24,6 @@ from .curator_prompts import (
 from .reflector_prompts import SWE_REFLECTOR_PROMPT_WITH_GT, SWE_REFLECTOR_PROMPT_NO_GT
 
 
-def _normalize_optional_path(path: str | None) -> str | None:
-    return os.path.abspath(path) if path else None
-
-
 def parse_args():
     p = argparse.ArgumentParser(
         description="Run ACE self-update loop on SWE-bench Pro with mini-swe-agent"
@@ -212,8 +208,6 @@ def main():
     # 2. Build DataProcessor (needed before data loading for process_task_data)
     data_processor = DataProcessor(
         raw_samples_path=data_jsonl,
-        scripts_dir=scripts_dir,
-        dockerfiles_dir=dockerfiles_dir,
         dockerhub_username=args.dockerhub_username,
         eval_output_dir=os.path.join(args.save_dir, "eval_outputs"),
     )
@@ -309,8 +303,6 @@ def main():
         "step_limit": args.step_limit,
         "cost_limit": args.cost_limit,
         "dockerhub_username": args.dockerhub_username,
-        "scripts_dir": _normalize_optional_path(scripts_dir),
-        "dockerfiles_dir": _normalize_optional_path(dockerfiles_dir),
     }
 
     results = ace_system.run(
