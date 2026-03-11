@@ -27,6 +27,12 @@ SWE_CURATOR_PROMPT_WITH_GT = """You are a master curator of knowledge. Your job 
 - Do NOT regenerate the entire playbook - only provide the additions needed
 - Focus on quality over quantity - a focused, well-organized playbook is better than an exhaustive one
 - Format your response as a PURE JSON object with specific sections
+- Use ONLY one of these exact section names for ADD operations:
+  - strategies_and_hard_rules
+  - useful_code_snippets_and_templates
+  - common_mistakes_and_correct_strategies
+  - problem_solving_heuristics_and_workflows
+  - others
 - For any operation if no new content to add, return an empty list for the operations field
 - Be concise and specific - each addition should be actionable
 
@@ -70,8 +76,8 @@ Output ONLY a valid JSON object with these exact fields:
   "operations": [
     {{
       "type": "ADD", 
-      "section": "formulas_and_calculations",
-      "content": "[New calculation method...]",
+      "section": "common_mistakes_and_correct_strategies",
+      "content": "[If a repo uses generated files or startup-time validation, verify the exact version-parsing helper before changing higher-level control flow.]",
       "reason": "[Explanation of why this is needed...]"
     }}
   ]
@@ -96,6 +102,12 @@ SWE_CURATOR_PROMPT_NO_GT = """You are a master curator of knowledge. Your job is
 - Do NOT regenerate the entire playbook - only provide the additions needed
 - Focus on quality over quantity - a focused, well-organized playbook is better than an exhaustive one
 - Format your response as a PURE JSON object with specific sections
+- Use ONLY one of these exact section names for ADD operations:
+  - strategies_and_hard_rules
+  - useful_code_snippets_and_templates
+  - common_mistakes_and_correct_strategies
+  - problem_solving_heuristics_and_workflows
+  - others
 - For any operation if no new content to add, return an empty list for the operations field
 - Be concise and specific - each addition should be actionable
 
@@ -139,8 +151,8 @@ Output ONLY a valid JSON object with these exact fields:
   "operations": [
     {{
       "type": "ADD", 
-      "section": "formulas_and_calculations",
-      "content": "[New calculation method...]",
+      "section": "common_mistakes_and_correct_strategies",
+      "content": "[If a repo uses generated files or startup-time validation, verify the exact version-parsing helper before changing higher-level control flow.]",
       "reason": "[Explanation of why this is needed...]"
     }}
   ]
