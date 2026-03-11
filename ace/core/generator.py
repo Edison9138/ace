@@ -76,6 +76,21 @@ class Generator:
         
         return response, bullet_ids, call_info
 
+    def get_playbook_stats_for_curator(self, playbook: str) -> Optional[dict]:
+        """Return playbook statistics to pass to the curator.
+
+        The default implementation calls ``get_playbook_stats`` which includes
+        helpful/harmful/unused breakdowns — useful for Q&A tasks (finance,
+        mind2web) where bullet feedback is tracked per-citation.
+
+        Override in subclasses where helpful/harmful counts are always zero
+        (e.g. SWEBenchProGenerator) to avoid sending misleading statistics.
+        Subclasses may return ``None`` to omit the stats block from the
+        curator prompt entirely.
+        """
+        from playbook_utils import get_playbook_stats
+        return get_playbook_stats(playbook)
+
     def should_learn_from_initially_correct_samples(self) -> bool:
         """Whether correct-on-first-try samples should still trigger reflection/curation.
 

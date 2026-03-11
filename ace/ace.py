@@ -592,7 +592,7 @@ class ACE:
         if step % curator_frequency == 0:
             print(f"\n--- Running Curator at step {step} ---")
             
-            stats = get_playbook_stats(self.playbook)
+            stats = self.generator.get_playbook_stats_for_curator(self.playbook)
             
             playbook_for_curator = (
                 self.generator.get_playbook_for_curator(self.playbook)
