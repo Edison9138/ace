@@ -91,6 +91,15 @@ class Generator:
         from playbook_utils import get_playbook_stats
         return get_playbook_stats(playbook)
 
+    def get_ground_truth_for_reflector(self, target: str) -> str:
+        """Return the ground-truth text to expose to the reflector.
+
+        Default behavior is task-agnostic passthrough. Override in subclasses
+        when ``target`` is a transport blob that contains extra evaluation
+        metadata in addition to the human-meaningful answer.
+        """
+        return target
+
     def should_learn_from_initially_correct_samples(self) -> bool:
         """Whether correct-on-first-try samples should still trigger reflection/curation.
 
