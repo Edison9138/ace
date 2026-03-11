@@ -17,7 +17,7 @@ class Curator:
     merging, and deleting bullets based on reflection feedback.
     """
     
-    def __init__(self, api_client, api_provider, model: str, max_tokens: int = 4096):
+    def __init__(self, api_client, api_provider, model: str, max_tokens: int = 4096, prompt_with_gt: Optional[str] = None, prompt_no_gt: Optional[str] = None):
         """
         Initialize the Curator agent.
         
@@ -26,11 +26,21 @@ class Curator:
             api_provider: API provider for LLM calls
             model: Model name to use for curation
             max_tokens: Maximum tokens for curation
+            prompt_with_gt: Custom prompt template when ground truth is available.
+                            Defaults to the standard CURATOR_PROMPT.
+            prompt_no_gt: Custom prompt template when ground truth is unavailable.
+                          Defaults to the standard CURATOR_PROMPT_NO_GT.
         """
         self.api_client = api_client
         self.api_provider = api_provider
         self.model = model
         self.max_tokens = max_tokens
+        self.prompt_with_gt = (
+            prompt_with_gt if prompt_with_gt is not None else CURATOR_PROMPT
+        )
+        self.prompt_no_gt = (
+            prompt_no_gt if prompt_no_gt is not None else CURATOR_PROMPT_NO_GT
+        )
     
     def curate(
         self,
@@ -40,12 +50,14 @@ class Curator:
         current_step: int,
         total_samples: int,
         token_budget: int,
-        playbook_stats: Dict[str, Any],
+        playbook_stats: Optional[Dict[str, Any]],
         use_ground_truth: bool = True,
         use_json_mode: bool = False,
         call_id: str = "curate",
         log_dir: Optional[str] = None,
-        next_global_id: int = 1
+        next_global_id: int = 1,
+        reasoning_trace: str = "",
+        prompt_playbook: Optional[str] = None,
     ) -> Tuple[str, int, List[Dict[str, Any]], Dict[str, Any]]:
         """
         Curate the playbook based on reflection feedback.
@@ -63,33 +75,46 @@ class Curator:
             call_id: Unique identifier for this call
             log_dir: Directory for logging
             next_global_id: Next available global ID for bullets
-            
+            reasoning_trace: Generator's reasoning trace / agent trajectory (optional)
+            prompt_playbook: Optional playbook variant to show in the prompt while
+                             preserving ``current_playbook`` as the canonical text
+                             that receives curator operations.
+
         Returns:
             Tuple of (updated_playbook, next_global_id, operations, call_info)
         """
         # Format playbook stats as JSON string
-        stats_str = json.dumps(playbook_stats, indent=2)
+        stats_str = (
+            json.dumps(playbook_stats, indent=2)
+            if playbook_stats is not None
+            else "(not provided for this task)"
+        )
+        playbook_for_prompt = (
+            prompt_playbook if prompt_playbook is not None else current_playbook
+        )
         
         # Select the appropriate prompt
         if use_ground_truth:
-            prompt = CURATOR_PROMPT.format(
+            prompt = self.prompt_with_gt.format(
                 current_step=current_step,
                 total_samples=total_samples,
                 token_budget=token_budget,
                 playbook_stats=stats_str,
                 recent_reflection=recent_reflection,
-                current_playbook=current_playbook,
-                question_context=question_context
+                current_playbook=playbook_for_prompt,
+                question_context=question_context,
+                reasoning_trace=reasoning_trace or "(not available)",
             )
         else:
-            prompt = CURATOR_PROMPT_NO_GT.format(
+            prompt = self.prompt_no_gt.format(
                 current_step=current_step,
                 total_samples=total_samples,
                 token_budget=token_budget,
                 playbook_stats=stats_str,
                 recent_reflection=recent_reflection,
-                current_playbook=current_playbook,
-                question_context=question_context
+                current_playbook=playbook_for_prompt,
+                question_context=question_context,
+                reasoning_trace=reasoning_trace or "(not available)"
             )
         
         # Make the LLM call
