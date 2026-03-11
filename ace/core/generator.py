@@ -100,6 +100,14 @@ class Generator:
         """
         return target
 
+    def get_question_context_for_curator(self, question: str, context: str) -> str:
+        """Return the question/context text to expose to the curator.
+
+        Default behavior prefers explicit context when present and otherwise
+        falls back to the question text.
+        """
+        return context or question
+
     def should_learn_from_initially_correct_samples(self) -> bool:
         """Whether correct-on-first-try samples should still trigger reflection/curation.
 
