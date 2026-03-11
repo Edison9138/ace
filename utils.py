@@ -287,3 +287,20 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
         print(f"\n📊 No valid results!")
         
     return final_results, error_logs
+
+def extract_reasoning_trace(gen_response: str) -> str:
+    """Extract the reasoning/trajectory from a generator response.
+
+    Some generators (e.g. SWEBenchProGenerator) return a JSON blob like
+    ``{"reasoning": "...", "bullet_ids": [...], "final_answer": "..."}``.
+    The reflector and curator expect the plain reasoning text, not the full
+    JSON.  This helper pulls out the ``"reasoning"`` field when the response
+    is JSON; for plain-text responses it returns the string unchanged.
+    """
+    try:
+        parsed = json.loads(gen_response)
+        if isinstance(parsed, dict) and "reasoning" in parsed:
+            return parsed["reasoning"]
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return gen_response

@@ -509,7 +509,7 @@ class ACE:
                 # Reflect on error
                 reflection_content, bullet_tags, _ = self.reflector.reflect(
                     question=question,
-                    reasoning_trace=gen_response,
+                    reasoning_trace=extract_reasoning_trace(gen_response),
                     predicted_answer=final_answer,
                     ground_truth=target if not no_ground_truth else None,
                     environment_feedback="Predicted answer does not match ground truth",
@@ -552,7 +552,7 @@ class ACE:
             
             reflection_content, bullet_tags, _ = self.reflector.reflect(
                 question=question,
-                reasoning_trace=gen_response,
+                reasoning_trace=extract_reasoning_trace(gen_response),
                 predicted_answer=final_answer,
                 ground_truth=target if not no_ground_truth else None,
                 environment_feedback="Predicted answer matches ground truth",
@@ -593,7 +593,8 @@ class ACE:
                 use_json_mode=use_json_mode,
                 call_id=step_id,
                 log_dir=log_dir,
-                next_global_id=self.next_global_id
+                next_global_id=self.next_global_id,
+                reasoning_trace=extract_reasoning_trace(gen_response),
             )
             
             # Run bulletpoint analyzer if enabled
