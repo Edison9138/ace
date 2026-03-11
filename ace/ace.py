@@ -502,9 +502,8 @@ class ACE:
                 print(f"Reflection round {round_num + 1}/{max_num_rounds}")
                 
                 # Get bullets for reflector
-                playbook_bullets = extract_playbook_bullets(
-                    self.playbook, bullet_ids
-                )
+                # but swe-bench-pro passes the full playbook to the reflector, just like ace-appworld
+                playbook_bullets = self.generator.get_bullets_for_reflector(self.playbook, bullet_ids)
                 
                 # Reflect on error
                 reflection_content, bullet_tags, _ = self.reflector.reflect(
@@ -549,9 +548,8 @@ class ACE:
         
         else:
             # For correct answers - still run reflector to tag helpful bullets
-            playbook_bullets = extract_playbook_bullets(
-                self.playbook, bullet_ids
-            )
+            # but swe-bench-pro passes the full playbook to the reflector, just like ace-appworld
+            playbook_bullets = self.generator.get_bullets_for_reflector(self.playbook, bullet_ids)
             
             reflection_content, bullet_tags, _ = self.reflector.reflect(
                 question=question,
