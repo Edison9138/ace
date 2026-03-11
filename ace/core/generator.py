@@ -76,6 +76,21 @@ class Generator:
         
         return response, bullet_ids, call_info
 
+    def get_bullets_for_reflector(self, playbook: str, bullet_ids: List[str]) -> str:
+        """Return the bullet content to pass as ``bullets_used`` to the reflector.
+
+        The default implementation extracts only the specific bullets the generator
+        cited by ID — appropriate for Q&A tasks (finance, mind2web) where the same
+        LLM writes both the answer and the citation list in one JSON response.
+
+        Override in subclasses for tasks where inline citation is impossible.
+        For example, SWEBenchProGenerator overrides this to return the full playbook
+        so the reflector has context for its analysis even though the SWE agent never
+        cites bullet IDs inside a git-diff patch.
+        """
+        from playbook_utils import extract_playbook_bullets
+        return extract_playbook_bullets(playbook, bullet_ids)
+
     def get_playbook_stats_for_curator(self, playbook: str) -> Optional[dict]:
         """Return playbook statistics to pass to the curator.
 
