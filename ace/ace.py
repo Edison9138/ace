@@ -511,6 +511,61 @@ class ACE:
             }
         }
         
+
+        def _get_infra_failure_source(
+            generation_call_info: Dict[str, Any],
+            current_is_correct: bool,
+        ) -> Optional[str]:
+            gen_failure_local = (generation_call_info or {}).get("failure_type", "none")
+            if gen_failure_local == "infra":
+                return "generator"
+
+            if (
+                not current_is_correct
+                and gen_failure_local == "none"
+                and hasattr(data_processor, "get_last_failure_type")
+            ):
+                try:
+                    eval_failure_local = data_processor.get_last_failure_type()
+                except Exception:
+                    eval_failure_local = "none"
+                if eval_failure_local == "infra":
+                    return "eval harness"
+
+            return None
+
+        def _finish_sample_with_infra_failure(
+            source: str,
+            final_answer_for_record: str,
+        ) -> Tuple[str, str, Dict[str, Any]]:
+            print(f"⚠️  Infrastructure failure ({source}) — skipping reflection/curation")
+            tracking_dict["post_train_result"] = {
+                "final_answer": final_answer_for_record,
+                "is_correct": False,
+                "failure_type": "infra",
+                "playbook_num_tokens": count_tokens(self.playbook),
+                "playbook_length": len(self.playbook),
+            }
+            return pre_train_answer, final_answer_for_record, tracking_dict
+
+        # Check for infrastructure failure (e.g. Docker image build error).
+        # When the agent never ran, reflection/curation/re-generation are
+        # pointless and waste compute.  Track it and return early.
+        #
+        # Two sources of infra failure:
+        #   1. Generator-side: agent/sandbox failed to produce a patch
+        #      (call_info["failure_type"] == "infra")
+        #   2. Eval-side: agent produced a patch but the eval harness crashed
+        #      (data_processor.get_last_failure_type() == "infra")
+        # Both cases mean correctness is unknown — skip reflection/curation.
+        infra_failure_source = _get_infra_failure_source(call_info, is_correct)
+        if infra_failure_source:
+            tracking_dict["pre_train_result"]["failure_type"] = "infra"
+            return _finish_sample_with_infra_failure(
+                infra_failure_source,
+                pre_train_answer,
+            )
+
         reflection_content = "(empty)"
         
         # STEP 2: Reflection and regeneration
@@ -547,7 +602,7 @@ class ACE:
                     )
                 
                 # Regenerate with reflection
-                gen_response, bullet_ids, _ = self.generator.generate(
+                gen_response, bullet_ids, post_reflect_call_info = self.generator.generate(
                     question=question,
                     playbook=self.playbook,
                     context=context,
@@ -559,6 +614,17 @@ class ACE:
                 
                 final_answer = extract_answer(gen_response)
                 
+                is_correct = data_processor.answer_is_correct(final_answer, target)
+                infra_failure_source = _get_infra_failure_source(
+                    post_reflect_call_info,
+                    is_correct,
+                )
+                if infra_failure_source:
+                    return _finish_sample_with_infra_failure(
+                        infra_failure_source,
+                        final_answer,
+                    )
+
                 if data_processor.answer_is_correct(final_answer, target):
                     print(f"Corrected after reflection round {round_num + 1}!")
                     is_correct = True
