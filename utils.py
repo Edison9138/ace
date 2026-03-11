@@ -156,6 +156,30 @@ def count_tokens(prompt: str) -> int:
     return len(enc.encode(prompt))
 
 
+def supports_single_pass_accuracy(data_processor) -> bool:
+    """Whether a task opts into single-pass accuracy aggregation."""
+    return bool(getattr(data_processor, "supports_single_pass_accuracy", False))
+
+def supports_failure_accounting(data_processor) -> bool:
+    """Whether a task opts into strict agent/infra failure accounting."""
+    return bool(getattr(data_processor, "supports_failure_accounting", False))
+
+def _classify_sample_error(error_text: str) -> str:
+    """Best-effort failure typing for per-sample evaluation exceptions."""
+    text = (error_text or "").lower()
+    agent_markers = [
+        "contextwindowexceeded",
+        "limitsexceeded",
+        "maximum context length",
+        "input tokens exceed",
+        "commandtimeouterror",
+        "timed out while running command",
+    ]
+    if any(marker in text for marker in agent_markers):
+        return "agent"
+    return "infra"
+
+
 def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:
     """
     Evaluate a single test sample - task-agnostic implementation.
@@ -182,13 +206,28 @@ def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:
 
         final_answer = extract_answer(gen_response)
         is_correct = data_processor.answer_is_correct(final_answer, target)
+        call_info = call_info if isinstance(call_info, dict) else {}
+        failure_type = call_info.get("failure_type", "none")
+        if (
+            not is_correct
+            and failure_type == "none"
+            and hasattr(data_processor, "get_last_failure_type")
+        ):
+            try:
+                eval_failure_type = data_processor.get_last_failure_type()
+            except Exception:
+                eval_failure_type = "none"
+            if eval_failure_type in {"infra", "agent"}:
+                failure_type = eval_failure_type
 
         return {
             "index": i,
             "final_answer": final_answer,
             "target": target,
             "is_correct": is_correct,
-            "success": True
+            "call_info": call_info,
+            "failure_type": failure_type,
+            "success": True,
         }, None
 
     except Exception as e:
@@ -225,12 +264,41 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
 
     results = {
         "correct": 0, "total": 0, "no_answer": 0,
-        "answers": [], "targets": [], "errors": []
+        "answers": [], "targets": [], "errors": [],
     }
+    failure_accounting = supports_failure_accounting(data_processor)
+    if failure_accounting:
+        results.update({"infra_failures": 0, "agent_failures": 0})
 
     # Use a wrapper to pass data_processor to the evaluation function
     def eval_wrapper(args_tuple):
         return evaluate_single_test_sample(args_tuple, data_processor)
+
+    def record_failed_sample(index: int, target: str, error_text: str) -> None:
+        # Count failed samples in denominators to avoid optimistic accuracy from drops.
+        prediction = "No final answer found"
+        failure_type = _classify_sample_error(error_text)
+        exit_status = f"sample_eval_error:{error_text}"
+        if len(exit_status) > 500:
+            exit_status = exit_status[:497] + "..."
+
+        results["total"] += 1
+        results["no_answer"] += 1
+        results["answers"].append(prediction)
+        results["targets"].append(target)
+        if failure_type == "infra":
+            results["infra_failures"] += 1
+        else:
+            results["agent_failures"] += 1
+        results["errors"].append(
+            {
+                "index": index,
+                "prediction": prediction,
+                "ground_truth": target,
+                "failure_type": failure_type,
+                "generator_exit_status": exit_status,
+            }
+        )
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_args = {
@@ -240,9 +308,15 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
 
         for i, future in enumerate(as_completed(future_to_args), 1):
             result, error = future.result()
-            
+            args_tuple = future_to_args[future]
+            sample_index = int(args_tuple[0])
+            sample = args_tuple[1]
+            target = sample.get("target", "") if isinstance(sample, dict) else ""
+
             if error:
                 print(error)
+                if failure_accounting:
+                    record_failed_sample(sample_index, target, error)
                 continue
 
             if result and result["success"]:
@@ -252,38 +326,93 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
                 results["targets"].append(result["target"])
                 
                 if not result["is_correct"]:
-                    results["errors"].append({
-                        "index": result["index"],
-                        "prediction": result["final_answer"],
-                        "ground_truth": result["target"]
-                    })
-                
-                if result["final_answer"] == "No final answer found":
+                    if failure_accounting:
+                        # Any incorrect prediction that is not explicitly
+                        # infra-labeled is counted as an agent/capability
+                        # failure.
+                        raw_failure_type = result.get("failure_type", "none")
+                        failure_type = "infra" if raw_failure_type == "infra" else "agent"
+                        if failure_type == "infra":
+                            results["infra_failures"] += 1
+                        else:
+                            results["agent_failures"] += 1
+                        call_info = result.get("call_info", {}) or {}
+                        results["errors"].append({
+                            "index": result["index"],
+                            "prediction": result["final_answer"],
+                            "ground_truth": result["target"],
+                            "failure_type": failure_type,
+                            "generator_exit_status": call_info.get("exit_status", ""),
+                            })
+                    else:
+                        results["errors"].append({
+                            "index": result["index"],
+                            "prediction": result["final_answer"],
+                            "ground_truth": result["target"],
+                        })
+                if (result["final_answer"] == "No final answer found" or not result["final_answer"]):
                     results["no_answer"] += 1
+            else:
+                # Defensive fallback: do not silently drop malformed worker returns.
+                msg = "sample returned empty or unsuccessful result"
+                print(f"Error evaluating sample {sample_index}: {msg}")
+                if failure_accounting:
+                    record_failed_sample(sample_index, target, msg)
 
             if i % 50 == 0:
                 curr_acc = results["correct"] / results["total"] if results["total"] > 0 else 0
                 print(f"Progress: {i}/{len(args_list)}, Accuracy: {curr_acc:.3f}")
-    
-    if results["answers"] and results["targets"]:
-        accuracy = data_processor.evaluate_accuracy(results["answers"], results["targets"])
-        
+
+    if results["total"] > 0:
+        if supports_single_pass_accuracy(data_processor):
+            # Use the first-pass per-sample correctness to avoid re-running
+            # expensive or noisy correctness checks for opted-in tasks.
+            accuracy = results["correct"] / results["total"]
+        else:
+            accuracy = data_processor.evaluate_accuracy(
+                results["answers"], results["targets"]
+            )
         final_results = {
             "accuracy": accuracy,
             "correct": results["correct"],
             "total": results["total"],
-            "no_answer": results["no_answer"]
+            "no_answer": results["no_answer"],
         }
-        
         error_logs = {
             "accuracy": accuracy,
-            "errors": results["errors"]
+            "errors": results["errors"],
         }
+        if failure_accounting:
+            final_results.update({
+                "infra_failures": results["infra_failures"],
+                "agent_failures": results["agent_failures"],
+            })
+            error_logs.update({
+                "infra_failures": results["infra_failures"],
+                "agent_failures": results["agent_failures"],
+            })
         
         print(f"\n📊 Final Accuracy: {accuracy:.3f} ({results['correct']}/{results['total']})")
     else:
-        results = {"accuracy": 0.0, "correct": 0, "total": 0}
-        error_logs = {}
+        final_results = {
+            "accuracy": 0.0,
+            "correct": 0,
+            "total": 0,
+            "no_answer": 0,
+        }
+        error_logs = {
+            "accuracy": 0.0,
+            "errors": results["errors"],
+        }
+        if failure_accounting:
+            final_results.update({
+                "infra_failures": results["infra_failures"],
+                "agent_failures": results["agent_failures"],
+            })
+            error_logs.update({
+                "infra_failures": results["infra_failures"],
+                "agent_failures": results["agent_failures"],
+            })
         print(f"\n📊 No valid results!")
         
     return final_results, error_logs
