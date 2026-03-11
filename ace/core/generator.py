@@ -75,7 +75,18 @@ class Generator:
         bullet_ids = self._extract_bullet_ids(response, use_json_mode)
         
         return response, bullet_ids, call_info
-    
+
+    def should_learn_from_initially_correct_samples(self) -> bool:
+        """Whether correct-on-first-try samples should still trigger reflection/curation.
+
+        The default matches the historical ACE behavior. Tasks with non-unique
+        correct outputs (for example SWE-bench patches that are judged by tests
+        rather than text equality) can override this to ``False`` so a correct
+        first-pass answer is not "corrected" against a different ground-truth
+        artifact and turned into noisy playbook updates.
+        """
+        return True
+
     def _extract_bullet_ids(self, response: str, use_json_mode: bool) -> List[str]:
         """
         Extract bullet IDs from generator response.

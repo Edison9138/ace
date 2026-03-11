@@ -554,30 +554,35 @@ class ACE:
                     break
         
         else:
-            # For correct answers - still run reflector to tag helpful bullets
-            # but swe-bench-pro passes the full playbook to the reflector, just like ace-appworld
-            playbook_bullets = self.generator.get_bullets_for_reflector(self.playbook, bullet_ids)
-            
-            reflection_content, bullet_tags, _ = self.reflector.reflect(
-                question=question,
-                reasoning_trace=extract_reasoning_trace(gen_response),
-                predicted_answer=final_answer,
-                ground_truth=reflector_ground_truth,
-                environment_feedback="Predicted answer matches ground truth",
-                bullets_used=playbook_bullets,
-                use_ground_truth=not no_ground_truth,
-                use_json_mode=use_json_mode,
-                call_id=f"{step_id}_reflect_on_correct",
-                log_dir=log_dir
-            )
-            
-            # Update bullet counts
-            if bullet_tags:
-                self.playbook = update_bullet_counts(
-                    self.playbook, bullet_tags
+            if self.generator.should_learn_from_initially_correct_samples():
+                # For correct answers - still run reflector to tag helpful bullets
+                playbook_bullets = self.generator.get_bullets_for_reflector(
+                    self.playbook, bullet_ids
                 )
-            
-            # Log with reflection
+
+                reflection_content, bullet_tags, _ = self.reflector.reflect(
+                    question=question,
+                    reasoning_trace=extract_reasoning_trace(gen_response),
+                    predicted_answer=final_answer,
+                    ground_truth=reflector_ground_truth,
+                    environment_feedback="Predicted answer matches ground truth",
+                    bullets_used=playbook_bullets,
+                    use_ground_truth=not no_ground_truth,
+                    use_json_mode=use_json_mode,
+                    call_id=f"{step_id}_reflect_on_correct",
+                    log_dir=log_dir,
+                )
+
+                # Update bullet counts
+                if bullet_tags:
+                    self.playbook = update_bullet_counts(self.playbook, bullet_tags)
+            else:
+                print(
+                    "Skipping reflection/curation for initially correct sample"
+                )
+                skip_curator_for_sample = True
+
+            # Log sample usage whether or not we ran the reflector.
             log_bullet_usage(usage_log_path, epoch, step, task_dict, bullet_ids,
                            playbook=self.playbook, 
                            reflection_content=reflection_content,
