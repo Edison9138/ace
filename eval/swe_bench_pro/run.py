@@ -1,13 +1,15 @@
 import argparse
+import hashlib
 import json
 import os
 import sys
+from typing import Any
 
 # Run this script from the ace repo root: python -m eval.swe_bench_pro.run --mode ...
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
 from ace import ACE
-from ace.core import Curator, Reflector
+from ace.core import Reflector
 from .swe_generator import (
     SWEBenchProGenerator,
     DEFAULT_MAX_TOKENS,
@@ -17,15 +19,7 @@ from .swe_generator import (
     DEFAULT_API_PROVIDER,
 )
 from .data_processor import DataProcessor, load_data
-from .curator_prompts import (
-    SWE_CURATOR_PROMPT_NO_GT,
-    SWE_CURATOR_PROMPT_WITH_GT,
-)
 from .reflector_prompts import SWE_REFLECTOR_PROMPT_WITH_GT, SWE_REFLECTOR_PROMPT_NO_GT
-
-
-def _normalize_optional_path(path: str | None) -> str | None:
-    return os.path.abspath(path) if path else None
 
 
 def parse_args():
@@ -69,12 +63,12 @@ def parse_args():
     p.add_argument(
         "--scripts_dir",
         default=None,
-        help="Path to SWE-bench_Pro-os/run_scripts/ (optional; auto-discovers ./SWE-bench_Pro-os/run_scripts first, then falls back to GitHub per-file)",
+        help="Path to SWE-bench_Pro-os/run_scripts/ (optional, will fetch from GitHub if not provided)",
     )
     p.add_argument(
         "--dockerfiles_dir",
         default=None,
-        help="Path to SWE-bench_Pro-os/dockerfiles/ (optional; auto-discovers ./SWE-bench_Pro-os/dockerfiles first, then falls back to GitHub per-file)",
+        help="Path to SWE-bench_Pro-os/dockerfiles/ (optional, will fetch from GitHub if not provided)",
     )
     p.add_argument(
         "--dockerhub_username",
@@ -82,6 +76,13 @@ def parse_args():
         help="DockerHub username (defaults to DOCKERHUB_USERNAME env var or 'jefzda')",
     )
 
+    # ── Evaluation Backend ────────────────────────────────────────────────────
+    p.add_argument(
+        "--eval_backend",
+        choices=["docker", "modal"],
+        default="modal",
+        help="Backend to use for evaluation execution (default: modal)",
+    )
     p.add_argument(
         "--test_workers",
         type=int,
@@ -104,7 +105,7 @@ def parse_args():
         "--max_num_rounds",
         type=int,
         default=1,
-        help="Max reflection rounds per sample (keep low — each round = full agent/eval run)",
+        help="Max reflection rounds per sample (keep low — each round = full Docker run)",
     )
     p.add_argument(
         "--curator_frequency",
@@ -138,9 +139,14 @@ def parse_args():
         help="Limit test set to the first N samples (default: use all).",
     )
 
-    # ── Agent Execution ───────────────────────────────────────────────────────
+    # ── Docker ────────────────────────────────────────────────────────────────
     p.add_argument("--step_limit", type=int, default=DEFAULT_STEP_LIMIT)
     p.add_argument("--cost_limit", type=float, default=DEFAULT_COST_LIMIT)
+    p.add_argument(
+        "--docker_platform",
+        default="linux/amd64",
+        help="Override for Apple Silicon; use '' on Linux",
+    )
 
     args = p.parse_args()
     if not args.dockerhub_username:
@@ -157,18 +163,6 @@ def load_initial_playbook(path: str) -> str | None:
     if os.path.exists(pb_path):
         with open(pb_path) as f:
             return f.read() or None
-    return None
-
-
-def resolve_optional_resource_dir(explicit_path: str | None, relative_subdir: str) -> str | None:
-    """Prefer an explicit CLI path, otherwise auto-discover the local SWE repo copy."""
-    if explicit_path:
-        return explicit_path
-
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    candidate = os.path.join(repo_root, "SWE-bench_Pro-os", relative_subdir)
-    if os.path.isdir(candidate):
-        return candidate
     return None
 
 
@@ -221,26 +215,15 @@ def main():
             "No raw data path. Provide --data_jsonl or add 'raw_data' to task_config."
         )
 
-    scripts_dir = resolve_optional_resource_dir(args.scripts_dir, "run_scripts")
-    dockerfiles_dir = resolve_optional_resource_dir(
-        args.dockerfiles_dir, "dockerfiles"
-    )
-    if scripts_dir:
-        print(f"Using SWE run scripts from: {scripts_dir}")
-    else:
-        print("SWE run scripts not found locally; missing files will fall back to GitHub")
-    if dockerfiles_dir:
-        print(f"Using SWE dockerfiles from: {dockerfiles_dir}")
-    else:
-        print("SWE dockerfiles not found locally; missing files will fall back to GitHub")
-
     # 2. Build DataProcessor (needed before data loading for process_task_data)
     data_processor = DataProcessor(
         raw_samples_path=data_jsonl,
-        scripts_dir=scripts_dir,
-        dockerfiles_dir=dockerfiles_dir,
+        scripts_dir=args.scripts_dir,
+        dockerfiles_dir=args.dockerfiles_dir,
         dockerhub_username=args.dockerhub_username,
         eval_output_dir=os.path.join(args.save_dir, "eval_outputs"),
+        docker_platform=args.docker_platform or None,
+        eval_backend=args.eval_backend,
     )
 
     # 3. Load and process data
@@ -248,7 +231,7 @@ def main():
         args.task_name, config, args.mode, data_processor
     )
 
-    # 4. Optional data slicing to run 
+    # 4. Optional data slicing to run subsets of train/val/test data
     if train_samples is not None and args.num_train_samples is not None:
         train_samples = train_samples[: args.num_train_samples]
         print(f"  → using first {len(train_samples)} train samples")
@@ -283,6 +266,7 @@ def main():
         model=args.generator_model,
         coding_model_name=args.coding_model,
         dockerhub_username=args.dockerhub_username,
+        execution_backend=args.eval_backend,
         step_limit=args.step_limit,
         cost_limit=args.cost_limit,
         max_tokens=args.max_tokens,
@@ -307,16 +291,6 @@ def main():
         prompt_no_gt=SWE_REFLECTOR_PROMPT_NO_GT,
     )
 
-    # 7c. Replace curator with SWE-specific one.
-    ace_system.curator = Curator(
-        api_client=ace_system.curator_client,
-        api_provider=args.api_provider,
-        model=args.curator_model,
-        max_tokens=args.max_tokens,
-        prompt_with_gt=SWE_CURATOR_PROMPT_WITH_GT,
-        prompt_no_gt=SWE_CURATOR_PROMPT_NO_GT,
-    )
-
     # 8. Run
     run_config = {
         "task_name": args.task_name,
@@ -329,13 +303,7 @@ def main():
         "json_mode": True,
         "test_workers": args.test_workers,
         "playbook_token_budget": args.playbook_token_budget,
-        "max_tokens": args.max_tokens,
-        "coding_model": args.coding_model,
-        "step_limit": args.step_limit,
-        "cost_limit": args.cost_limit,
-        "dockerhub_username": args.dockerhub_username,
-        "scripts_dir": _normalize_optional_path(scripts_dir),
-        "dockerfiles_dir": _normalize_optional_path(dockerfiles_dir),
+        "max_tokens": args.max_tokens
     }
 
     results = ace_system.run(
