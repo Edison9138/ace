@@ -15,7 +15,7 @@ class Reflector:
     bullets as helpful, harmful, or neutral.
     """
     
-    def __init__(self, api_client, api_provider, model: str, max_tokens: int = 4096):
+    def __init__(self, api_client, api_provider, model: str, max_tokens: int = 4096, prompt_with_gt: Optional[str] = None, prompt_no_gt: Optional[str] = None):
         """
         Initialize the Reflector agent.
         
@@ -24,11 +24,17 @@ class Reflector:
             api_provider: API provider for LLM calls
             model: Model name to use for reflection
             max_tokens: Maximum tokens for reflection
+            prompt_with_gt: Custom prompt template when ground truth is available.
+                            Defaults to the standard REFLECTOR_PROMPT.
+            prompt_no_gt: Custom prompt template when ground truth is unavailable.
+                          Defaults to the standard REFLECTOR_PROMPT_NO_GT.
         """
         self.api_client = api_client
         self.api_provider = api_provider
         self.model = model
         self.max_tokens = max_tokens
+        self.prompt_with_gt = prompt_with_gt if prompt_with_gt is not None else REFLECTOR_PROMPT
+        self.prompt_no_gt = prompt_no_gt if prompt_no_gt is not None else REFLECTOR_PROMPT_NO_GT
     
     def reflect(
         self,
@@ -63,7 +69,7 @@ class Reflector:
         """
         # Select the appropriate prompt
         if use_ground_truth and ground_truth:
-            prompt = REFLECTOR_PROMPT.format(
+            prompt = self.prompt_with_gt.format(
                 question,
                 reasoning_trace,
                 predicted_answer,
@@ -72,7 +78,7 @@ class Reflector:
                 bullets_used
             )
         else:
-            prompt = REFLECTOR_PROMPT_NO_GT.format(
+            prompt = self.prompt_no_gt.format(
                 question,
                 reasoning_trace,
                 predicted_answer,
