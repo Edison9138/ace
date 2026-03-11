@@ -627,26 +627,65 @@ class ACE:
                 )
         
         # STEP 4: Post-curator generation
-        gen_response, _, _ = self.generator.generate(
-            question=question,
-            playbook=self.playbook,
-            context=context,
-            reflection="(empty)",
-            use_json_mode=use_json_mode,
-            call_id=f"{step_id}_post_curate",
-            log_dir=log_dir
-        )
-        
-        final_answer = extract_answer(gen_response)
-        post_train_answer = final_answer
-        
-        post_train_is_correct = data_processor.answer_is_correct(final_answer, target)
-        tracking_dict["post_train_result"] = {
-            "final_answer": final_answer,
-            "is_correct": post_train_is_correct,
-            "playbook_num_tokens": count_tokens(self.playbook),
-            "playbook_length": len(self.playbook)
-        }
+        # Skip re-generation when the sample is already solved — re-running a
+        # non-deterministic agent (e.g. SWE-bench coding agent) from scratch
+        # can regress a correct answer.  Only re-generate for incorrect samples
+        # where the updated playbook might help.
+        if is_correct:
+            if pre_train_was_correct:
+                # Initially correct: reuse pre-train answer; post-train = same result.
+                post_train_answer = pre_train_answer
+                tracking_dict["post_train_result"] = tracking_dict[
+                    "pre_train_result"
+                ].copy()
+            else:
+                # Fixed by reflection: final_answer holds the corrected answer from
+                # the last reflection round.  Report it as the post-train result so
+                # that post-train accuracy correctly credits the improvement.
+                post_train_answer = final_answer
+                tracking_dict["post_train_result"] = {
+                    "final_answer": final_answer,
+                    "is_correct": True,
+                    "playbook_num_tokens": count_tokens(self.playbook),
+                    "playbook_length": len(self.playbook),
+                }
+                return pre_train_answer, post_train_answer, tracking_dict
+            tracking_dict["post_train_result"]["playbook_num_tokens"] = count_tokens(
+                self.playbook
+            )
+            tracking_dict["post_train_result"]["playbook_length"] = len(self.playbook)
+        else:
+            gen_response, _, post_curate_call_info = self.generator.generate(
+                question=question,
+                playbook=self.playbook,
+                context=context,
+                reflection="(empty)",
+                use_json_mode=use_json_mode,
+                call_id=f"{step_id}_post_curate",
+                log_dir=log_dir,
+            )
+
+            final_answer = extract_answer(gen_response)
+            post_train_answer = final_answer
+
+            post_train_is_correct = data_processor.answer_is_correct(
+                final_answer, target
+            )
+            infra_failure_source = _get_infra_failure_source(
+                post_curate_call_info,
+                post_train_is_correct,
+            )
+            if infra_failure_source:
+                return _finish_sample_with_infra_failure(
+                    infra_failure_source,
+                    final_answer,
+                )
+            tracking_dict["post_train_result"] = {
+                "final_answer": final_answer,
+                "is_correct": post_train_is_correct,
+                "playbook_num_tokens": count_tokens(self.playbook),
+                "playbook_length": len(self.playbook),
+            }
         
         return pre_train_answer, post_train_answer, tracking_dict
     
