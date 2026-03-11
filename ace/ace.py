@@ -89,8 +89,8 @@ class ACE:
             self.playbook = self._initialize_empty_playbook()
         
         self.best_playbook = self.playbook
-        # Track global bullet ID
-        self.next_global_id = 1
+        # Seed next_global_id from loaded playbook to avoid bullet ID collisions
+        self.next_global_id = get_next_global_id(self.playbook)
     
     def _initialize_empty_playbook(self) -> str:
         """Initialize an empty playbook with standard sections."""
