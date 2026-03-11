@@ -567,7 +567,9 @@ class ACE:
             )
 
         reflection_content = "(empty)"
-        
+        pre_train_was_correct = tracking_dict["pre_train_result"]["is_correct"]
+        skip_curator_for_sample = False
+
         # STEP 2: Reflection and regeneration
         if not is_correct:
             # For incorrect answers - iterate reflection rounds
@@ -613,7 +615,6 @@ class ACE:
                 )
                 
                 final_answer = extract_answer(gen_response)
-                
                 is_correct = data_processor.answer_is_correct(final_answer, target)
                 infra_failure_source = _get_infra_failure_source(
                     post_reflect_call_info,
@@ -625,9 +626,21 @@ class ACE:
                         final_answer,
                     )
 
-                if data_processor.answer_is_correct(final_answer, target):
+                if is_correct:
                     print(f"Corrected after reflection round {round_num + 1}!")
-                    is_correct = True
+                    # Log the reflection-round bullet IDs and reflection content now
+                    # that we know the outcome (correct).  The initial log at line ~549
+                    # only captured pre-reflection bullet_ids with is_correct=False.
+                    log_bullet_usage(
+                        usage_log_path,
+                        epoch,
+                        step,
+                        task_dict,
+                        bullet_ids,
+                        playbook=self.playbook,
+                        reflection_content=reflection_content,
+                        is_correct=True,
+                    )
                     break
         
         else:
@@ -666,7 +679,7 @@ class ACE:
                            is_correct=is_correct)
         
         # STEP 3: Curator - Periodically update playbook
-        if step % curator_frequency == 0:
+        if step % curator_frequency == 0 and not skip_curator_for_sample:
             print(f"\n--- Running Curator at step {step} ---")
             
             stats = self.generator.get_playbook_stats_for_curator(self.playbook)
@@ -702,7 +715,9 @@ class ACE:
                     threshold=self.bulletpoint_analyzer_threshold,
                     merge=True
                 )
-        
+        elif step % curator_frequency == 0 and skip_curator_for_sample:
+            print("Skipping curator for initially correct sample")
+
         # STEP 4: Post-curator generation
         # Skip re-generation when the sample is already solved — re-running a
         # non-deterministic agent (e.g. SWE-bench coding agent) from scratch
@@ -909,6 +924,7 @@ class ACE:
                     
                     # Validation evaluation
                     val_results = {}
+                    val_error_log = {}
                     if val_samples:
                         val_results, val_error_log = evaluate_test_set(
                             data_processor, self.generator, self.playbook, 
