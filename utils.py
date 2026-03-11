@@ -52,7 +52,11 @@ def get_section_slug(section_name):
         "problem_solving_heuristics": "prob",
         "context_clues_and_indicators": "ctx",
         "others": "misc",
-        "meta_strategies": "meta"
+        "meta_strategies": "meta",
+        "strategies_and_hard_rules": "shr",
+        "problem_solving_heuristics_and_workflows": "psw",
+        "common_mistakes_and_correct_strategies": "mis",
+        "useful_code_snippets_and_templates": "snp",
     }
     
     # Clean and convert to snake_case
