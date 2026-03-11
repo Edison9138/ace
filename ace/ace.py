@@ -464,7 +464,9 @@ class ACE:
             if not no_ground_truth
             else None
         )
-
+        curator_question_context = self.generator.get_question_context_for_curator(
+            question, context
+        )
         # STEP 1: Initial generation (pre-train)
         print("Generating initial answer...")
         gen_response, bullet_ids, call_info = self.generator.generate(
@@ -590,7 +592,7 @@ class ACE:
             self.playbook, self.next_global_id, operations, _ = self.curator.curate(
                 current_playbook=self.playbook,
                 recent_reflection=reflection_content,
-                question_context=context,
+                question_context=curator_question_context,
                 current_step=step,
                 total_samples=total_samples,
                 token_budget=token_budget,
