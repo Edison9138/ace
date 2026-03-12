@@ -65,12 +65,18 @@ def parse_args():
     p.add_argument(
         "--scripts_dir",
         default=None,
-        help="Path to SWE-bench_Pro-os/run_scripts/ (optional; auto-discovers ./SWE-bench_Pro-os/run_scripts first, then falls back to GitHub per-file)",
+        help=(
+            "Reserved for future local script support. "
+            "Currently ignored by this runner; scripts are fetched from GitHub."
+        ),
     )
     p.add_argument(
         "--dockerfiles_dir",
         default=None,
-        help="Path to SWE-bench_Pro-os/dockerfiles/ (optional; auto-discovers ./SWE-bench_Pro-os/dockerfiles first, then falls back to GitHub per-file)",
+        help=(
+            "Reserved for future local Dockerfile support. "
+            "Currently ignored by this runner; Dockerfiles are fetched from GitHub."
+        ),
     )
     p.add_argument(
         "--dockerhub_username",
