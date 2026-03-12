@@ -55,10 +55,6 @@ def load_data(data_path: str) -> List[Dict[str, Any]]:
 
 
 class DataProcessor:
-    _MAX_TEST_NAMES_IN_FEEDBACK = 8
-    _MAX_LOG_LINES_IN_FEEDBACK = 20
-    _MAX_LOG_CHARS_IN_FEEDBACK = 1200
-
     def __init__(
         self,
         raw_samples_path: str,  # path to sweap_eval_full_v2.jsonl
@@ -117,21 +113,6 @@ class DataProcessor:
     def get_last_failure_type(self) -> str:
         return getattr(self._thread_state, "last_failure_type", "none")
 
-    def _set_last_environment_feedback(self, feedback: str) -> None:
-        self._thread_state.last_environment_feedback = feedback or ""
-
-    def get_last_environment_feedback(self) -> str:
-        return getattr(self._thread_state, "last_environment_feedback", "")
-
-    def _format_name_list(self, names: set[str] | list[str]) -> str:
-        cleaned_names = sorted({str(name) for name in names if name})
-        if not cleaned_names:
-            return "(none)"
-        if len(cleaned_names) <= self._MAX_TEST_NAMES_IN_FEEDBACK:
-            return ", ".join(cleaned_names)
-        shown = cleaned_names[: self._MAX_TEST_NAMES_IN_FEEDBACK]
-        remaining = len(cleaned_names) - len(shown)
-        return f"{', '.join(shown)}, ... (+{remaining} more)"
 
     def _read_eval_log_excerpt(
         self, instance_id: str, eval_prefix: str, stream_name: str
@@ -152,86 +133,6 @@ class DataProcessor:
         if len(excerpt) > self._MAX_LOG_CHARS_IN_FEEDBACK:
             excerpt = excerpt[-self._MAX_LOG_CHARS_IN_FEEDBACK :]
         return excerpt.strip()
-
-    def _build_environment_feedback(
-        self,
-        *,
-        instance_id: str,
-        eval_prefix: str,
-        output: Optional[dict],
-        fail_to_pass: set[str],
-        pass_to_pass: set[str],
-    ) -> str:
-        tests = output.get("tests", []) if isinstance(output, dict) else []
-        meta = output.get("_ace_meta", {}) if isinstance(output, dict) else {}
-        passed = {
-            test.get("name")
-            for test in tests
-            if test.get("name") and test.get("status") == "PASSED"
-        }
-        error_tests = {
-            test.get("name")
-            for test in tests
-            if test.get("name") and test.get("status") == "ERROR"
-        }
-        other_nonpassed = {
-            f"{test.get('name')} ({test.get('status')})"
-            for test in tests
-            if test.get("name") and test.get("status") not in {None, "PASSED", "ERROR"}
-        }
-        missing_fail_to_pass = fail_to_pass - passed
-        missing_pass_to_pass = pass_to_pass - passed
-        stderr_excerpt = self._read_eval_log_excerpt(instance_id, eval_prefix, "stderr")
-        stdout_excerpt = self._read_eval_log_excerpt(instance_id, eval_prefix, "stdout")
-
-        lines = ["SWE-bench-Pro evaluator summary:", f"- Instance ID: {instance_id}"]
-        if output is None:
-            lines.append("- Eval harness did not produce output.json.")
-        elif meta:
-            status = meta.get("status")
-            failure_type = meta.get("failure_type")
-            error = meta.get("error")
-            lines.append(
-                "- Eval harness status: "
-                f"{status or 'unknown'} (classified as {failure_type or 'unknown'})"
-            )
-            if error:
-                lines.append(f"- Eval harness error: {error}")
-            if not tests:
-                lines.append("- Parsed test results: no test statuses were extracted.")
-        elif not tests:
-            lines.append("- Parsed test results: no test statuses were extracted.")
-        else:
-            lines.append(f"- Passed tests reported: {self._format_name_list(passed)}")
-            if error_tests:
-                lines.append(
-                    f"- Parser reported ERROR tests: {self._format_name_list(error_tests)}"
-                )
-            if other_nonpassed:
-                lines.append(
-                    "- Other non-passing parser statuses: "
-                    f"{self._format_name_list(other_nonpassed)}"
-                )
-
-        if missing_fail_to_pass:
-            lines.append(
-                "- Required fail_to_pass tests still not passing: "
-                f"{self._format_name_list(missing_fail_to_pass)}"
-            )
-        if missing_pass_to_pass:
-            lines.append(
-                "- Required pass_to_pass tests missing or regressed: "
-                f"{self._format_name_list(missing_pass_to_pass)}"
-            )
-        if output is not None and not missing_fail_to_pass and not missing_pass_to_pass:
-            lines.append("- All required fail_to_pass and pass_to_pass tests passed.")
-
-        if stderr_excerpt:
-            lines.extend(["- stderr tail:", "```", stderr_excerpt, "```"])
-        if stdout_excerpt:
-            lines.extend(["- stdout tail:", "```", stdout_excerpt, "```"])
-
-        return "\n".join(lines)
 
     # ── Standard ACE interface methods ────────────────────────────────────────
 
@@ -263,12 +164,8 @@ class DataProcessor:
 
     def answer_is_correct(self, predicted: str, ground_truth: str) -> bool:
         self._set_last_failure_type("none")
-        self._set_last_environment_feedback("")
         if not predicted:
             self._set_last_failure_type("agent")
-            self._set_last_environment_feedback(
-                "SWE-bench-Pro evaluator summary:\n- No patch was submitted by the generator."
-            )
             return False
 
         meta = json.loads(ground_truth)
@@ -279,11 +176,6 @@ class DataProcessor:
 
         if instance_id not in self.raw_df.index:
             self._set_last_failure_type("infra")
-            self._set_last_environment_feedback(
-                "SWE-bench-Pro evaluator summary:\n"
-                f"- Instance ID: {instance_id}\n"
-                "- Eval could not start because the raw sample metadata was not found."
-            )
             return False
 
         output = eval_with_modal(
@@ -297,28 +189,10 @@ class DataProcessor:
         )
         if output is None:
             self._set_last_failure_type("infra")
-            self._set_last_environment_feedback(
-                self._build_environment_feedback(
-                    instance_id=instance_id,
-                    eval_prefix=eval_prefix,
-                    output=None,
-                    fail_to_pass=fail_to_pass,
-                    pass_to_pass=pass_to_pass,
-                )
-            )
             return False
 
         meta_output = output if isinstance(output, dict) else None
         meta = meta_output.get("_ace_meta", {}) if meta_output else {}
-        self._set_last_environment_feedback(
-            self._build_environment_feedback(
-                instance_id=instance_id,
-                eval_prefix=eval_prefix,
-                output=output,
-                fail_to_pass=fail_to_pass,
-                pass_to_pass=pass_to_pass,
-            )
-        )
 
         passed = {
             t.get("name") for t in output.get("tests", []) if t.get("status") == "PASSED"
