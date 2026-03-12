@@ -2,6 +2,7 @@
 import os
 import re
 import json
+import uuid
 import openai
 import tiktoken
 from dotenv import load_dotenv
@@ -187,10 +188,10 @@ def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:
     Evaluate a single test sample - task-agnostic implementation.
     
     Args:
-        args_tuple: Tuple of (index, task_dict, generator, playbook, max_tokens, log_dir, use_json_mode)
+        args_tuple: Tuple of (index, task_dict, generator, playbook, max_tokens, log_dir, use_json_mode, eval_session_id)
         data_processor: DataProcessor instance with answer_is_correct method
     """
-    (i, task_dict, generator, playbook, max_tokens, log_dir, use_json_mode) = args_tuple
+    (i, task_dict, generator, playbook, max_tokens, log_dir, use_json_mode, eval_session_id) = args_tuple
     try:
         context = task_dict["context"]
         question = task_dict["question"]
@@ -202,7 +203,7 @@ def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:
             context=context,
             reflection="(empty)",
             use_json_mode=use_json_mode,
-            call_id=f"test_eval_{i}",
+            call_id=f"test_eval_{eval_session_id}_{i}",
             log_dir=log_dir
         )
 
@@ -258,9 +259,10 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
     print(f"\n{'='*40}")
     print(f"EVALUATING TEST SET - {len(test_samples)} samples, {max_workers} workers")
     print(f"{'='*40}")
+    eval_session_id = uuid.uuid4().hex[:8]
 
     args_list = [
-        (i, sample, generator, playbook, max_tokens, log_dir, use_json_mode)
+        (i, sample, generator, playbook, max_tokens, log_dir, use_json_mode, eval_session_id)
         for i, sample in enumerate(test_samples)
     ]
 
