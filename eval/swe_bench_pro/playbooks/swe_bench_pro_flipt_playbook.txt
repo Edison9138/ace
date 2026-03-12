@@ -1,0 +1,47 @@
+## STRATEGIES AND HARD RULES
+[shr-10001] Submit via these TWO SEPARATE COMMANDS in order: Step 1: `cd /testbed && git add -N . && git diff -- <source_files_only> > patch.txt` Step 2: `cd /testbed && echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt` Never combine Step 1 and Step 2. Never continue after Step 2.
+[shr-10002] Every bash command runs in a new subshell. Directory changes are NOT persistent. Always prefix repository commands with: `cd /testbed && ...`
+[shr-10003] Never search outside `/testbed`. Do not use `..` with grep, rg, find, or similar search commands.
+[shr-10004] Do not modify `*_test.go` files. Flipt tasks often still require non-`.go` implementation artifacts such as `go.mod`, `go.sum`, `go.work.sum`, `.proto`, generated `.pb.go` files, schema files, migrations, YAML fixtures, `ui/src/*`, and source-side `testdata`.
+[shr-10005] Prefer the smallest patch that makes the named tests pass. Docs such as `CHANGELOG.md` or `DEPRECATIONS.md` are low priority unless the task explicitly requires user-facing text or behavior that depends on them.
+[shr-10006] Default to targeted package tests. Use `go test ./...` only after the focused package tests pass or when the affected package cannot be narrowed further.
+
+## PROBLEM-SOLVING HEURISTICS AND WORKFLOWS
+[psw-10001] Start from the failing test names in `FAIL_TO_PASS` or the task prompt. These are test names, not file paths. Locate the owning package first, then read the implementation and nearby non-test artifacts that define the same behavior.
+[psw-10002] Use `rg` to map a test name to its package, then run the smallest Go test possible: `cd /testbed && go test ./path/to/pkg -run '^TestName$' -count=1 -v`
+[psw-10003] For subtests or small groups of related failures, run the parent test with a regex such as: `cd /testbed && go test ./path/to/pkg -run '^(TestLoad|TestJSONSchema|TestValidate)$' -count=1`
+[psw-10004] When the failing tests are config-heavy (`TestLoad`, `TestValidate`, `TestJSONSchema`, `TestScheme`, `TestLogEncoding`, `TestServeHTTP`), read the config structs, validation logic, schema files, defaults, and YAML fixtures together before editing.
+[psw-10005] When the bug mentions gRPC, OFREP, API responses, operators, or middleware, search both the server code and `rpc/` definitions. Backend behavior and RPC contracts often need synchronized changes.
+[psw-10006] When storage or migrator tests fail, inspect every backend touched by the feature (`postgres`, `mysql`, `sqlite`, `cockroachdb`) plus the migrator or shared storage glue before changing only one backend.
+[psw-10007] If a task introduces or changes a config key, enum, auth mode, storage mode, or operator, search for all validators and serializers of that concept across `internal/config`, `config/`, `cmd/`, `rpc/`, `internal/cmd`, and `ui/src`.
+[psw-10008] If imports, generated types, or compile errors look inconsistent after a logic change, inspect `go.mod`, `go.sum`, `go.work.sum`, and adjacent generated files instead of forcing workarounds around stale definitions.
+[psw-10009] Reproduce parsing, ordering, or serialization bugs with the narrowest `go test` command in the affected package instead of editing blind.
+
+## FLIPT-SPECIFIC PATTERNS
+[pat-10001] Config tasks frequently couple `internal/config/*` or `config/config.go` with `config/flipt.schema.cue`, `config/flipt.schema.json`, `config/default.yml`, `internal/cmd/grpc.go`, and YAML under `config/testdata` or `internal/config/testdata`.
+[pat-10002] Export and import tasks often require code plus checked-in fixtures under `build/testing/testdata` or `internal/ext/testdata`. Those fixtures are part of the behavior under test, not automatically forbidden just because they live under `testdata`.
+[pat-10003] Operator or enum additions may need parallel updates in evaluation logic, shared RPC constants, validation maps, CLI or UI labels, and sometimes OFREP or middleware behavior.
+[pat-10004] Protobuf tasks are rarely isolated. If `.proto` or RPC contracts change, expect checked-in generated files such as `.pb.go`, `_grpc.pb.go`, gateway files, or swagger outputs to need synchronized edits.
+[pat-10005] SQL integrity and deletion semantics often require migration changes for multiple backends. Keep error text and edge-case behavior identical across all backends.
+[pat-10006] OCI and auth tasks often span config parsing, schema files, YAML fixtures, `internal/oci/*`, and command bootstrap code. Search the whole feature slice before deciding a one-file change is sufficient.
+[pat-10007] Source-side fixture files under `config/testdata`, `internal/ext/testdata`, and `build/testing/testdata` are allowed to change when configuration, export/import format, or serialization behavior changes. Do not touch `*_test.go`, but do not treat every `testdata/` file as forbidden.
+[pat-10008] A patch that only changes docs or only changes tests is unlikely to solve a Flipt eval task. Prioritize the runtime, config, API, storage, or serialization path that the failing tests actually execute.
+[pat-10009] Migration numbering is backend-specific. Follow the existing sequence in each backend directory; do not assume the same migration number across `postgres`, `mysql`, `sqlite`, and `cockroachdb`.
+
+## COMMON MISTAKES AND CORRECT STRATEGIES
+[mis-10001] Do not reach for `python -m pytest`. This dataset is Go-first. Use `go test` in the owning package.
+[mis-10002] Do not assume “source files only” means “only `.go` files”. In Flipt, module files, schema files, migrations, generated RPC files, UI type definitions, and source-side fixtures are often part of the real implementation fix.
+[mis-10003] Do not update only one SQL backend or only one schema artifact when the feature is shared. Cross-backend and cross-artifact drift is a common failure mode.
+[mis-10004] Do not rename or renumber migration files casually. Preserve each backend's ordering scheme.
+[mis-10005] Do not widen verification too early. First make the named failing tests pass, then run nearby package tests only if needed.
+[mis-10006] Do not submit without checking `patch.txt`. Empty patches and test-only patches waste runs.
+[mis-10007] If a task changes checked-in generated artifacts, keep the generated neighbors consistent enough to compile and satisfy tests rather than changing only the handwritten source file.
+
+## USEFUL CODE SNIPPETS AND TEMPLATES
+[snp-10001] Find a test or symbol: `cd /testbed && rg -n 'func TestLoad\\b|TestLoad\\(' .`
+[snp-10002] Run one Go test: `cd /testbed && go test ./internal/config -run '^TestLoad$' -count=1 -v`
+[snp-10003] Run a small set of related tests: `cd /testbed && go test ./internal/config -run '^(TestLoad|TestJSONSchema|TestValidate)$' -count=1`
+[snp-10004] Search a feature slice across likely coupled directories: `cd /testbed && rg -n 'oci|authentication|manifest|schema' internal config cmd rpc ui`
+[snp-10005] Inspect config, RPC, and schema neighbors: `cd /testbed && rg --files config rpc internal ui | rg 'schema|\\.proto|\\.pb\\.go|swagger|testdata'`
+
+## OTHERS

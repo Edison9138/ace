@@ -87,7 +87,7 @@ def parse_args():
 
     # ── Output ────────────────────────────────────────────────────────────────
     p.add_argument("--save_dir", default="./eval/swe_bench_pro/results")
-    p.add_argument("--initial_playbook", default=None)
+    p.add_argument("--initial_playbook", required=True, type=str, help="Path to initial playbook file")
     p.add_argument(
         "--traj_dir",
         default=None,
@@ -144,16 +144,12 @@ def parse_args():
     return args
 
 
-def load_initial_playbook(path: str) -> str | None:
-    """Load initial playbook from an explicit path, falling back to the
-    bundled swe_bench_pro_playbook.txt if no path is given."""
-    pb_path = path or os.path.join(
-        os.path.dirname(__file__), "swe_bench_pro_playbook.txt"
-    )
-    if os.path.exists(pb_path):
-        with open(pb_path) as f:
-            return f.read() or None
-    return None
+def load_initial_playbook(path: str | None) -> str:
+    """Load initial playbook from a path"""
+    if not path or not os.path.exists(path):
+        raise ValueError("No initial playbook path provided")
+    with open(path, encoding="utf-8") as f:
+        return f.read()
 
 
 def preprocess_data(task_name: str, config: dict, mode: str, data_processor):
@@ -233,8 +229,7 @@ def main():
     # 5. Load initial playbook
     initial_playbook = load_initial_playbook(args.initial_playbook)
     if initial_playbook:
-        src = args.initial_playbook or "swe_bench_pro_playbook.txt (bundled)"
-        print(f"Loaded initial playbook from {src}")
+        print(f"Loaded initial playbook from {args.initial_playbook}")
     else:
         print("No initial playbook found — starting with empty playbook")
 

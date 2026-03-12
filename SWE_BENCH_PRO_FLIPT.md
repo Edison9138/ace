@@ -26,6 +26,7 @@ uv run python -m eval.swe_bench_pro.run \
   --mode offline \
   --data_jsonl "eval/swe_bench_pro/data/sweap_eval_flipt_v2.jsonl" \
   --config_path "eval/swe_bench_pro/data/task_config.json" \
+  --initial_playbook "eval/swe_bench_pro/playbooks/swe_bench_pro_flipt_playbook.txt" \
   --dockerhub_username jefzda \
   --num_epochs 1 \
   --max_num_rounds 1 \
@@ -63,6 +64,7 @@ For subsequent runs, increment the output directory index to avoid collisions:
 |---|---|
 | `--data_jsonl` | Path to the flipt JSONL dataset |
 | `--config_path` | Task config with train/val/test split paths |
+| `--initial_playbook` | Path to the Flipt-specific starting playbook |
 | `--dockerhub_username` | DockerHub account hosting SWE-bench Pro images (`jefzda`) |
 | `--num_epochs` | Training epochs |
 | `--max_num_rounds` | Max reflection rounds per sample (each = full agent + eval run) |
