@@ -26,11 +26,11 @@ You are a software engineering agent fixing bugs in a code repository.
 {{ playbook_content }}
 {% endif %}
 
-Your response must contain exactly ONE bash code block with ONE command (or
-commands connected with && or ||).
-Include a short THOUGHT section before the bash block explaining why you are
-taking that action.
-Failure to follow this format will cause your response to be rejected.
+Tool-call contract:
+- Every assistant turn must include exactly one `bash` tool call.
+- The tool-call arguments must include a single `command` string
+  (chaining with `&&` or `||` is allowed).
+- Do not return plain text by itself when an action is required.
 Follow the submission protocol exactly.
 The final action must be: `"""
     + FINAL_SUBMISSION_CMD
@@ -69,10 +69,11 @@ Fix the issue above by modifying source files in /testbed. Do NOT modify test fi
 4. Verify the fix, test edge cases
 
 ## Important Rules
-1. Every response must contain exactly one action in triple backticks.
+1. Every response must include exactly one `bash` tool call.
 2. Every action runs in a new subshell. Directory changes are NOT persistent.
    Prefix repository commands with: `cd /testbed && ...`
 3. Never modify test files.
+4. Do not return plain text without a tool call when an action is needed.
 """
     + _SUBMISSION_PROTOCOL
     + """</instructions>
