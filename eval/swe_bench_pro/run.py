@@ -208,6 +208,8 @@ def main():
     # 2. Build DataProcessor (needed before data loading for process_task_data)
     data_processor = DataProcessor(
         raw_samples_path=data_jsonl,
+        scripts_dir=None,
+        dockerfiles_dir=None,
         dockerhub_username=args.dockerhub_username,
         eval_output_dir=os.path.join(args.save_dir, "eval_outputs"),
     )
