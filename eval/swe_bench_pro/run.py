@@ -17,11 +17,11 @@ from .swe_generator import (
     DEFAULT_API_PROVIDER,
 )
 from .data_processor import DataProcessor, load_data
-from .curator_prompts import (
+from .prompts.curator_prompts import (
     SWE_CURATOR_PROMPT_NO_GT,
     SWE_CURATOR_PROMPT_WITH_GT,
 )
-from .reflector_prompts import SWE_REFLECTOR_PROMPT_WITH_GT, SWE_REFLECTOR_PROMPT_NO_GT
+from .prompts.reflector_prompts import SWE_REFLECTOR_PROMPT_WITH_GT, SWE_REFLECTOR_PROMPT_NO_GT
 
 
 def parse_args():
