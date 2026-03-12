@@ -1,7 +1,7 @@
 import ast
+import hashlib
 import json
 import os
-import hashlib
 import threading
 from typing import List, Dict, Any, Optional
 import pandas as pd
@@ -114,26 +114,6 @@ class DataProcessor:
         return getattr(self._thread_state, "last_failure_type", "none")
 
 
-    def _read_eval_log_excerpt(
-        self, instance_id: str, eval_prefix: str, stream_name: str
-    ) -> str:
-        path = os.path.join(
-            self.eval_output_dir, instance_id, f"{eval_prefix}_{stream_name}.log"
-        )
-        if not os.path.exists(path):
-            return ""
-        try:
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read().strip()
-        except OSError:
-            return ""
-        if not content:
-            return ""
-        excerpt = "\n".join(content.splitlines()[-self._MAX_LOG_LINES_IN_FEEDBACK :])
-        if len(excerpt) > self._MAX_LOG_CHARS_IN_FEEDBACK:
-            excerpt = excerpt[-self._MAX_LOG_CHARS_IN_FEEDBACK :]
-        return excerpt.strip()
-
     # ── Standard ACE interface methods ────────────────────────────────────────
 
     def process_task_data(self, raw_data: List[Dict]) -> List[Dict]:
@@ -162,45 +142,89 @@ class DataProcessor:
             )
         return processed
 
-    def answer_is_correct(self, predicted: str, ground_truth: str) -> bool:
+    def answer_is_correct(self, predicted: str, ground_truth: str | Dict[str, Any]) -> bool:
         self._set_last_failure_type("none")
         if not predicted:
             self._set_last_failure_type("agent")
             return False
 
-        meta = json.loads(ground_truth)
-        instance_id = meta["instance_id"]
-        fail_to_pass = set(_safe_list(meta["fail_to_pass"]))
-        pass_to_pass = set(_safe_list(meta["pass_to_pass"]))
+        if isinstance(ground_truth, dict):
+            meta = ground_truth
+        else:
+            try:
+                meta = json.loads(ground_truth)
+            except (TypeError, json.JSONDecodeError, ValueError):
+                self._set_last_failure_type("infra")
+                return False
+        if not isinstance(meta, dict):
+            self._set_last_failure_type("infra")
+            return False
+
+        instance_id = meta.get("instance_id")
+        if not isinstance(instance_id, str) or not instance_id.strip():
+            self._set_last_failure_type("infra")
+            return False
+        instance_id = instance_id.strip()
+        try:
+            fail_to_pass = {
+                test_name
+                for test_name in _safe_list(meta.get("fail_to_pass"))
+                if isinstance(test_name, str) and test_name
+            }
+            pass_to_pass = {
+                test_name
+                for test_name in _safe_list(meta.get("pass_to_pass"))
+                if isinstance(test_name, str) and test_name
+            }
+        except (TypeError, ValueError):
+            self._set_last_failure_type("infra")
+            return False
+        required_tests = fail_to_pass | pass_to_pass
+        if not required_tests:
+            self._set_last_failure_type("infra")
+            return False
         eval_prefix = hashlib.sha1(predicted.encode("utf-8")).hexdigest()[:12]
 
         if instance_id not in self.raw_df.index:
             self._set_last_failure_type("infra")
             return False
 
-        output = eval_with_modal(
-            patch=predicted,
-            sample=self.raw_df.loc[instance_id],
-            output_dir=self.eval_output_dir,
-            dockerhub_username=self.dockerhub_username,
-            scripts_dir=self.scripts_dir,
-            dockerfiles_dir=self.dockerfiles_dir,
-            prefix=eval_prefix,
-        )
-        if output is None:
+        try:
+            output = eval_with_modal(
+                patch=predicted,
+                sample=self.raw_df.loc[instance_id],
+                output_dir=self.eval_output_dir,
+                dockerhub_username=self.dockerhub_username,
+                scripts_dir=self.scripts_dir,
+                dockerfiles_dir=self.dockerfiles_dir,
+                prefix=eval_prefix,
+            )
+        except Exception:
+            self._set_last_failure_type("infra")
+            return False
+        if not isinstance(output, dict):
             self._set_last_failure_type("infra")
             return False
 
-        meta_output = output if isinstance(output, dict) else None
-        meta = meta_output.get("_ace_meta", {}) if meta_output else {}
+        meta_output = output.get("_ace_meta", {})
+        if not isinstance(meta_output, dict):
+            meta_output = {}
 
+        tests = output.get("tests", [])
+        if not isinstance(tests, list):
+            tests = []
         passed = {
-            t.get("name") for t in output.get("tests", []) if t.get("status") == "PASSED"
+            test.get("name")
+            for test in tests
+            if isinstance(test, dict)
+            and test.get("status") == "PASSED"
+            and isinstance(test.get("name"), str)
         }
-        is_correct = (fail_to_pass | pass_to_pass) <= passed
-        if meta.get("failure_type") == "infra":
+        is_correct = required_tests <= passed
+        if meta_output.get("failure_type") == "infra":
             self._set_last_failure_type("infra")
-        elif not is_correct:
+            return False
+        if not is_correct:
             self._set_last_failure_type("agent")
         return is_correct
 
