@@ -32,6 +32,8 @@ SWE_CURATOR_PROMPT_WITH_GT = """You are a master curator of knowledge. Your job 
   - useful_code_snippets_and_templates
   - common_mistakes_and_correct_strategies
   - problem_solving_heuristics_and_workflows
+  - verification_checklist
+  - troubleshooting_and_pitfalls
   - others
 - For any operation if no new content to add, return an empty list for the operations field
 - Be concise and specific - each addition should be actionable
@@ -108,6 +110,8 @@ SWE_CURATOR_PROMPT_NO_GT = """You are a master curator of knowledge. Your job is
   - useful_code_snippets_and_templates
   - common_mistakes_and_correct_strategies
   - problem_solving_heuristics_and_workflows
+  - verification_checklist
+  - troubleshooting_and_pitfalls
   - others
 - For any operation if no new content to add, return an empty list for the operations field
 - Be concise and specific - each addition should be actionable

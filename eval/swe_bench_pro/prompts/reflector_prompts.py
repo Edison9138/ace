@@ -42,6 +42,8 @@ and the ground truth step by step
   - correct_approach: what should the agent have done instead? Be concrete.
   - key_insight: one concise, reusable principle (not already in the playbook) that \
 would prevent this class of mistake in future tasks
+  - verification_checklist: a list of verification steps that should be followed to ensure the correctness of the solution
+  - troubleshooting_and_pitfalls: a list of troubleshooting steps that should be followed to fix the error
 
 **Problem Statement:**
 {}
@@ -94,6 +96,8 @@ Your output should be a JSON object with the following fields:
   - correct_approach: what should the agent have done instead? Be concrete.
   - key_insight: one concise, reusable principle (not already in the playbook) that \
 would prevent this class of mistake in future tasks
+  - verification_checklist: a list of verification steps that should be followed to ensure the correctness of the solution
+  - troubleshooting_and_pitfalls: a list of troubleshooting steps that should be followed to fix the error
 
 **Problem Statement:**
 {}
