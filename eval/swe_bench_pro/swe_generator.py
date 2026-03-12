@@ -31,7 +31,10 @@ DOCKER_CWD = "/testbed"
 # repository-wide searches in SWE-bench Pro and can abort otherwise recoverable
 # trajectories.
 DOCKER_TIMEOUT = 300
-DOCKER_ENV = {
+# Keep these output-noise controls as additive image-level ENVs.
+# Passing command-level env through swerex replaces inherited runtime env,
+# which can drop PATH/HOME/Go-related variables.
+ADDITIVE_IMAGE_ENV = {
     "PAGER": "cat",
     "MANPAGER": "cat",
     "LESS": "-R",
@@ -46,6 +49,34 @@ DEPLOYMENT_TIMEOUT = 3600  # STARTUP_TIMEOUT + RUNTIME_TIMEOUT
 SANDBOX_CPU = (0.25, 12.0)
 SANDBOX_MEMORY = (128, 4096)
 SANDBOX_IDLE_TIMEOUT = 600
+
+
+def _build_additive_image_env_commands() -> list[str]:
+    """Render additive ENV lines applied to the Modal clean image."""
+    return [f"ENV {key}={value}" for key, value in ADDITIVE_IMAGE_ENV.items()]
+
+
+def _build_modal_env_kwargs(*, clean_image_obj: Any, docker_image_uri: str) -> dict[str, Any]:
+    """Build kwargs for SwerexModalEnvironment without command-level env override."""
+    return {
+        "clean_image_obj": clean_image_obj,
+        "image": docker_image_uri,
+        "cwd": DOCKER_CWD,
+        "timeout": DOCKER_TIMEOUT,
+        # Do not pass runtime `env`: swerex forwards that dict directly to
+        # subprocess.run(..., env=...), replacing inherited image/container env.
+        "startup_timeout": STARTUP_TIMEOUT,
+        "runtime_timeout": RUNTIME_TIMEOUT,
+        "deployment_timeout": DEPLOYMENT_TIMEOUT,
+        "modal_sandbox_kwargs": {
+            "cpu": SANDBOX_CPU,
+            "memory": SANDBOX_MEMORY,
+            # Auto-terminate the sandbox if the swerex tunnel TCP connection
+            # becomes idle for this many seconds.
+            "idle_timeout": SANDBOX_IDLE_TIMEOUT,
+        },
+    }
+
 
 # Keep per-step observations tight; large tool outputs can quickly exceed
 # model context windows over long trajectories.
@@ -688,7 +719,9 @@ class SWEBenchProGenerator(Generator):
                 # We dynamically recompile the image to replace ENTRYPOINT before starting Swerex.
                 clean_image = (
                     modal.Image.from_registry(docker_image_uri)
-                    .dockerfile_commands(["ENTRYPOINT []"])
+                    .dockerfile_commands(
+                        ["ENTRYPOINT []", *_build_additive_image_env_commands()]
+                    )
                     .run_commands(
                         [
                             "ln -s /app /testbed || true",
@@ -900,26 +933,10 @@ class SWEBenchProGenerator(Generator):
                     env = None
                     try:
                         env = _CleanSwerexModalEnvironment(
-                            clean_image_obj=clean_image,
-                            image=docker_image_uri,
-                            cwd=DOCKER_CWD,
-                            timeout=DOCKER_TIMEOUT,
-                            env=DOCKER_ENV,
-                            startup_timeout=STARTUP_TIMEOUT,
-                            runtime_timeout=RUNTIME_TIMEOUT,
-                            deployment_timeout=DEPLOYMENT_TIMEOUT,
-                            modal_sandbox_kwargs={
-                                "cpu": SANDBOX_CPU,
-                                "memory": SANDBOX_MEMORY,
-                                # Auto-terminate the sandbox if the swerex tunnel TCP
-                                # connection becomes idle for this many seconds.
-                                # While RemoteRuntime is alive the tunnel stays active,
-                                # so this only fires on process crash / SIGKILL (OS closes
-                                # the socket immediately) — giving a ~20-min safety net
-                                # instead of the 1-hour deployment_timeout worst-case.
-                                # Normal teardown still calls sandbox.terminate() directly.
-                                "idle_timeout": SANDBOX_IDLE_TIMEOUT,
-                            },
+                            **_build_modal_env_kwargs(
+                                clean_image_obj=clean_image,
+                                docker_image_uri=docker_image_uri,
+                            )
                         )
 
                         agent = DefaultAgent(
