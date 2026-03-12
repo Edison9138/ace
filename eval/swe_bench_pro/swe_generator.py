@@ -1,4 +1,3 @@
-import copy
 import dataclasses
 import json
 import logging
@@ -130,19 +129,6 @@ OBS_TAIL_CHARS = 1800
 TRANSPORT_RETRY_ATTEMPTS = 3
 TRANSPORT_RETRY_BACKOFF_BASE_S = 0.5
 
-# Accumulated context window guard — mirrors ace-appworld's max_output_length /
-# trimmed_messages mechanism.  DefaultAgent (mini-swe-agent v2.2.5) has zero
-# built-in context management: it accumulates all messages and sends the full
-# history on every step.  When the total context exceeds the model's window,
-# litellm raises ContextWindowExceededError which is an abort-exception →
-# agent hard-fails with an empty patch and wastes all cost spent so far.
-#
-# _TrimmingLitellmModel intercepts each model.query() call and passes a trimmed
-# copy to the real API, keeping DefaultAgent's self.messages untouched so the
-# agent's internal bookkeeping is never disrupted.
-_MAX_CONTEXT_CHARS = 400_000  # ~100 K tokens; safe for GPT-5.2's large context
-_KEEP_LAST_N_OBS = 5  # keep this many recent observations intact
-
 # Retry the entire sandbox lifecycle (creation + agent run) on infra failures.
 # Covers cases where Modal fails to schedule the sandbox or the first HTTP
 # request to a freshly created sandbox is refused/disconnected.
@@ -189,8 +175,8 @@ SWEREX_BOOTSTRAP_CMD = (
 )
 
 # ── Agent defaults ─────────────────────────────────────────────────────────────
-# A lower default avoids ContextWindowExceeded on long trajectories while
-# still allowing multi-step debugging on SWE-bench style tasks.
+# A lower default keeps multi-step debugging viable without letting trajectories
+# sprawl in cost and prompt size.
 DEFAULT_STEP_LIMIT = 80
 DEFAULT_COST_LIMIT = 10.0
 DEFAULT_MAX_TOKENS = 4096
@@ -304,83 +290,6 @@ def _truncate_observation_text(text: str) -> str:
     omitted = len(text) - (OBS_HEAD_CHARS + OBS_TAIL_CHARS)
     marker = f"\n\n...[output truncated: {omitted} chars omitted]...\n\n"
     return text[:OBS_HEAD_CHARS] + marker + text[-OBS_TAIL_CHARS:]
-
-
-def _trim_messages_for_context(messages: list[dict]) -> list[dict]:
-    """Return a trimmed copy of *messages* that stays within _MAX_CONTEXT_CHARS.
-
-    Mini-swe-agent message layout:
-      index 0 — SYSTEM  (playbook + agent instructions; always kept)
-      index 1 — USER    (instance / problem statement; always kept)
-      index 2+ — alternating ASSISTANT / USER (bash observation)
-
-    Two-phase strategy (mirrors ace-appworld's ``trimmed_messages`` property):
-
-      Phase 1 — Replace the content of old USER/observation messages with
-                "[NOT SHOWN FOR BREVITY]", keeping the last _KEEP_LAST_N_OBS
-                observations intact so recent context is preserved.
-
-      Phase 2 — If still too long after Phase 1, remove full ASSISTANT + USER
-                pairs starting from the oldest, appending "[TRIMMED HISTORY]"
-                to the instance message so the model knows history was dropped.
-    """
-
-    def _total(msgs: list[dict]) -> int:
-        return sum(len(str(m.get("content") or "")) for m in msgs)
-
-    if _total(messages) <= _MAX_CONTEXT_CHARS:
-        return messages
-
-    messages = copy.deepcopy(messages)
-
-    # Phase 1 ──────────────────────────────────────────────────────────────────
-    # Collect indices of observation (user-role) messages at index >= 2.
-    obs_indices = [
-        i for i, m in enumerate(messages) if i >= 2 and m.get("role") == "user"
-    ]
-    # Only replace observations outside the protected tail.
-    replaceable_end = max(0, len(obs_indices) - _KEEP_LAST_N_OBS)
-    for cursor in range(replaceable_end):
-        if _total(messages) <= _MAX_CONTEXT_CHARS:
-            return messages
-        idx = obs_indices[cursor]
-        content = str(messages[idx].get("content") or "")
-        if content.strip() not in ("", "[NOT SHOWN FOR BREVITY]"):
-            messages[idx]["content"] = "[NOT SHOWN FOR BREVITY]\n"
-
-    if _total(messages) <= _MAX_CONTEXT_CHARS:
-        return messages
-
-    # Phase 2 ──────────────────────────────────────────────────────────────────
-    # Remove full ASSISTANT + USER pairs from oldest to newest.
-    _MARKER = "[TRIMMED HISTORY]\n"
-    while _total(messages) > _MAX_CONTEXT_CHARS and len(messages) > 3:
-        # Append a marker to the instance message (index 1) on first removal
-        # so the model knows earlier history was dropped.
-        instance_content = str(messages[1].get("content") or "")
-        if _MARKER not in instance_content:
-            messages[1]["content"] = instance_content + "\n" + _MARKER
-        # Remove oldest ASSISTANT message (now at index 2 after all pops).
-        messages.pop(2)
-        # Remove the following USER/observation message if present.
-        if len(messages) > 2 and messages[2].get("role") == "user":
-            messages.pop(2)
-
-    return messages
-
-
-class _TrimmingLitellmModel(LitellmModel):
-    """LitellmModel that trims the accumulated message history before each API call.
-
-    Intercepts ``model.query(messages)`` and applies ``_trim_messages_for_context``
-    before forwarding to the real ``LitellmModel``.  DefaultAgent's own
-    ``self.messages`` list is never mutated — only the copy sent to the API is
-    trimmed.  This mirrors ace-appworld's ``trimmed_messages`` property, which is
-    applied before every ``generator_model.generate()`` call.
-    """
-
-    def query(self, messages: list[dict], **kwargs) -> dict:
-        return super().query(_trim_messages_for_context(messages), **kwargs)
 
 
 def _looks_like_transport_error_text(msg: str) -> bool:
@@ -640,12 +549,10 @@ def _format_trajectory(
 ) -> str:
     """Build a rich reasoning trace from the agent's conversation history.
 
-    Mirrors ace-appworld's approach: applies ``_trim_messages_for_context``
-    (the same two-phase smart trimming used during live agent execution) to
-    produce a trimmed copy of the messages, then formats them into a single
-    text block. The curator can optionally receive a redacted version of the
-    initial user message so duplicated task/reflection context is omitted while
-    preserving the agent instructions.
+    Formats the stored agent messages into a single text block. The curator can
+    optionally receive a redacted version of the initial user message so
+    duplicated task/reflection context is omitted while preserving the agent
+    instructions.
 
     The system message body (playbook + instructions) is omitted — the
     reflector already receives the playbook via ``bullets_used``.
@@ -655,14 +562,8 @@ def _format_trajectory(
     if agent is None or not hasattr(agent, "messages") or not agent.messages:
         return header
 
-    # Apply the same two-phase smart trimming used for live context
-    # management (collapse observations oldest-first, then drop old message
-    # pairs).  This mirrors ace-appworld's trimmed_messages property which
-    # both reflector_call and curator_call use.
-    trimmed = _trim_messages_for_context(agent.messages)
-
     formatted: list[str] = []
-    for i, msg in enumerate(trimmed):
+    for i, msg in enumerate(agent.messages):
         role = msg.get("role", "unknown").upper()
 
         # Skip system message body — it's the playbook + instructions that
@@ -1096,7 +997,7 @@ class SWEBenchProGenerator(Generator):
                         )
 
                         agent = DefaultAgent(
-                            _TrimmingLitellmModel(
+                            LitellmModel(
                                 model_name=self.coding_model_name,
                                 # Match the reference swebp config: deterministic
                                 # temperature and an explicit completion budget.
