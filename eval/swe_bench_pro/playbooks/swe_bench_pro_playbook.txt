@@ -1,5 +1,5 @@
 ## STRATEGIES AND HARD RULES
-[shr-00001] Submit via these TWO SEPARATE COMMANDS in order: Step 1: git add -N . && git diff -- <source_files_only> > patch.txt Step 2: echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt Never combine Step 1 and Step 2. Never continue after Step 2.
+[shr-00001] Submit via these TWO SEPARATE COMMANDS in order: Step 1: save `patch.txt` from the exact diff you want graded; safe default: `cd /testbed && git add -N . && git diff > patch.txt`. Step 2: `cd /testbed && echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt`. Never combine Step 1 and Step 2. Never continue after Step 2.
 [shr-00002] Only modify source files. Never modify test files, pyproject.toml, or setup files.
 [shr-00003] Every bash command runs in a new subshell. Directory changes are NOT persistent. Always prefix commands with: cd /testbed && ...
 [shr-00004] Never use `..` with grep or search commands (e.g. do not run `grep -R ... ..`). Always confine searches to the current repository directory (e.g. `grep -Rn ... .`). Searching outside the testbed will cause the environment to hang and timeout.

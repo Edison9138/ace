@@ -3,14 +3,14 @@ SWE-bench Pro specific generator prompts.
 """
 
 SUBMIT_SENTINEL = "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
-PATCH_SAVE_CMD = "cd /testbed && git add -N . && git diff -- <source_files_only> > patch.txt"
+DEFAULT_PATCH_SAVE_CMD = "cd /testbed && git add -N . && git diff > patch.txt"
 FINAL_SUBMISSION_CMD = (
     f"cd /testbed && echo {SUBMIT_SENTINEL} && cat patch.txt"
 )
 
 _SUBMISSION_PROTOCOL = f"""\
 ## Submission — TWO SEPARATE ACTIONS IN ORDER:
-Step 1: `{PATCH_SAVE_CMD}`
+Step 1: Save `patch.txt` from the exact diff you want graded. Safe default: `{DEFAULT_PATCH_SAVE_CMD}`
 Step 2: `{FINAL_SUBMISSION_CMD}`
 
 Never combine Step 1 and Step 2. Never continue after Step 2.

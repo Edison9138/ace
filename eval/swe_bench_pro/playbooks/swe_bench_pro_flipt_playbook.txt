@@ -1,5 +1,5 @@
 ## STRATEGIES AND HARD RULES
-[shr-00001] Submit with the required two-step protocol: first save `patch.txt`, then print the submission sentinel and `cat patch.txt`. Never combine the two steps, and never continue after submission.
+[shr-00001] Submit with the required two-step protocol: first save `patch.txt` from the exact diff you want graded; safe default: `cd /testbed && git add -N . && git diff > patch.txt`. Then run `cd /testbed && echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt`. Never combine the two steps, and never continue after submission.
 [shr-00002] Every command runs in a fresh shell. Prefix repository commands with: `cd /testbed && ...`
 [shr-00003] Do not modify `*_test.go` files.
 [shr-00004] Keep patches small and reversible. Verify the narrow failing behavior before widening scope.
