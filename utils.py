@@ -57,6 +57,8 @@ def get_section_slug(section_name):
         "problem_solving_heuristics_and_workflows": "psw",
         "common_mistakes_and_correct_strategies": "mis",
         "useful_code_snippets_and_templates": "snp",
+        "verification_checklist": "ver",
+        "troubleshooting_and_pitfalls": "trb",
     }
     
     # Clean and convert to snake_case
