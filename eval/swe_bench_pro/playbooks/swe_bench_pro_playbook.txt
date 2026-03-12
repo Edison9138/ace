@@ -1,0 +1,22 @@
+## STRATEGIES AND HARD RULES
+[shr-00001] Submit via these TWO SEPARATE COMMANDS in order: Step 1: git add -N . && git diff -- <source_files_only> > patch.txt Step 2: echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt Never combine Step 1 and Step 2. Never continue after Step 2.
+[shr-00002] Only modify source files. Never modify test files, pyproject.toml, or setup files.
+[shr-00003] Every bash command runs in a new subshell. Directory changes are NOT persistent. Always prefix commands with: cd /testbed && ...
+[shr-00004] Never use `..` with grep or search commands (e.g. do not run `grep -R ... ..`). Always confine searches to the current repository directory (e.g. `grep -Rn ... .`). Searching outside the testbed will cause the environment to hang and timeout.
+
+## PROBLEM-SOLVING HEURISTICS AND WORKFLOWS
+[psw-00001] Workflow: (1) Read the failing test. (2) grep -rn for the relevant function. (3) Reproduce with a minimal script. (4) Edit source. (5) Verify. (6) Submit.
+[psw-00002] Use `python -m pytest <test_file> -xvs` to run a single test verbosely.
+[psw-00003] Use `git log --oneline -10` to understand recent changes.
+
+## COMMON MISTAKES AND CORRECT STRATEGIES
+[mis-00001] Always verify patch with `cat patch.txt` before submitting. Never submit empty.
+[mis-00002] Do not use `git commit`. Use `git add -N .` before `git diff` to ensure newly created files appear in the patch.
+[mis-00003] Do not use interactive editors (vi, nano). Use sed -i, heredoc, or Python file writes.
+
+## USEFUL CODE SNIPPETS AND TEMPLATES
+[snp-00001] Replace in file:    sed -i 's/old/new/g' path/to/file.py
+[snp-00002] View lines 50-70:   sed -n '50,70p' path/to/file.py
+[snp-00003] Find in codebase:   grep -rn "term" /testbed --include="*.py"
+
+## OTHERS
