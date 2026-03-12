@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 from ..prompts.curator import CURATOR_PROMPT, CURATOR_PROMPT_NO_GT
-from playbook_utils import extract_json_from_text, apply_curator_operations
+from playbook_utils import extract_json_from_text,apply_curator_operations,normalize_playbook_content
 from logger import log_curator_operation_diff, log_curator_failure
 from llm import timed_llm_call
 
@@ -245,5 +245,12 @@ class Curator:
                 missing_fields = required_fields - set(op.keys())
                 if missing_fields:
                     raise ValueError(f"ADD operation {i} missing fields: {list(missing_fields)}")
+
+                if not isinstance(op["content"], str):
+                    raise ValueError(f"ADD operation {i} field 'content' must be a string")
+
+                op["content"] = normalize_playbook_content(op["content"])
+                if not op["content"]:
+                    raise ValueError(f"ADD operation {i} field 'content' must not be empty")
         
         return operations_info
