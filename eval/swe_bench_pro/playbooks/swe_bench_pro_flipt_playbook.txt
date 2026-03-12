@@ -5,8 +5,8 @@
 [shr-00004] Keep patches small and reversible. Verify the narrow failing behavior before widening scope.
 
 ## USEFUL CODE SNIPPETS AND TEMPLATES
-[snp-00001] Use `rg` to locate the failing test, owning package, and implementation before editing.
-[snp-00002] Prefer targeted Go verification such as: `cd /testbed && go test ./path/to/pkg -run '^TestName$' -count=1 -v`
+[snp-00001] Use repository search commands available in the current image to locate the failing test, owning package, and implementation before editing.
+[snp-00002] Prefer targeted verification commands available in the current image (scoped to the relevant package/test) before broader validation.
 
 ## COMMON MISTAKES AND CORRECT STRATEGIES
 [mis-00001] Do not assume the fix lives in only one handwritten source file. If behavior depends on config, schema, generated code, migrations, or checked-in fixtures, keep those artifacts consistent.
