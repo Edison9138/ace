@@ -65,11 +65,19 @@ would prevent this class of mistake in future tasks
 
 **Answer in this exact JSON format:**
 {{
-  "reasoning": "[Your detailed chain of thought]",
+  "reasoning": "[Your detailed analysis]",
   "error_identification": "[What specifically went wrong in the agent's approach]",
   "root_cause_analysis": "[Why did this error occur? What was misunderstood?]",
   "correct_approach": "[What should the agent have done instead?]",
-  "key_insight": "[One concise, reusable principle not already in the playbook]"
+  "key_insight": "[One concise, reusable principle not already in the playbook]",
+  "verification_checklist": [
+    "[Verification step 1]",
+    "[Verification step 2]"
+  ],
+  "troubleshooting_and_pitfalls": [
+    "[Pitfall or troubleshooting step 1]",
+    "[Pitfall or troubleshooting step 2]"
+  ]
 }}
 
 ---
@@ -116,12 +124,19 @@ would prevent this class of mistake in future tasks
 
 **Answer in this exact JSON format:**
 {{
-  "reasoning": "[Your detailed chain of thought]",
+  "reasoning": "[Your detailed analysis]",
   "error_identification": "[What specifically went wrong in the agent's approach]",
   "root_cause_analysis": "[Why did this error occur? What was misunderstood?]",
   "correct_approach": "[What should the agent have done instead?]",
-  "key_insight": "[One concise, reusable principle not already in the playbook]"
+  "key_insight": "[One concise, reusable principle not already in the playbook]",
+  "verification_checklist": [
+    "[Verification step 1]",
+    "[Verification step 2]"
+  ],
+  "troubleshooting_and_pitfalls": [
+    "[Pitfall or troubleshooting step 1]",
+    "[Pitfall or troubleshooting step 2]"
+  ]
 }}
-
 ---
 """
