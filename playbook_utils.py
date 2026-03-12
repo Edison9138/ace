@@ -14,6 +14,15 @@ def _normalize_section_name(section_name):
     """Normalize section names so headers, curator ops, and slug lookup agree."""
     return section_name.lower().strip().replace(' ', '_').replace('-', '_').replace('&', 'and').rstrip(':')
 
+def normalize_playbook_content(content):
+    """Normalize playbook bullet content into a single-line string."""
+    if content is None:
+        return ""
+
+    normalized = str(content).replace("\r\n", "\n").replace("\r", "\n")
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.strip()
+
 def parse_playbook_line(line):
     """Parse a single playbook line.
 
@@ -63,7 +72,10 @@ def get_next_global_id(playbook_text):
 
 def format_playbook_line(bullet_id, helpful, harmful, content):
     """Format a bullet into playbook line format"""
-    return f"[{bullet_id}] helpful={helpful} harmful={harmful} :: {content}"
+    return (
+        f"[{bullet_id}] helpful={helpful} harmful={harmful} :: "
+        f"{normalize_playbook_content(content)}"
+    )
 
 def update_bullet_counts(playbook_text, bullet_tags):
     """Update helpful/harmful counts based on tags (Counter layer)"""
