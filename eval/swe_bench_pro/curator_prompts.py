@@ -35,6 +35,7 @@ SWE_CURATOR_PROMPT_WITH_GT = """You are a master curator of knowledge. Your job 
   - others
 - For any operation if no new content to add, return an empty list for the operations field
 - Be concise and specific - each addition should be actionable
+- Every ADD.content value must be a single-line plain-text sentence. Do not include newlines, bullet lists, markdown, or code fences in content.
 
 
 **Training Context:**
@@ -67,7 +68,7 @@ Output ONLY a valid JSON object with these exact fields:
 **Available Operations:**
 1. ADD: Create new bullet points with fresh IDs
     - section: the section to add the new bullet to
-    - content: the new content of the bullet. Note: no need to include the bullet_id in the content like '[ctx-00263] helpful=1 harmful=0 ::', the bullet_id will be added by the system.
+    - content: the new content of the bullet. It must be a single-line plain-text sentence with no newlines, bullet lists, markdown, or code fences. Note: no need to include the bullet_id in the content like '[ctx-00263] helpful=1 harmful=0 ::', the bullet_id will be added by the system.
     - reason: a short explanation of why this bullet is being added based on the reflection
 
 **RESPONSE FORMAT - Output ONLY this JSON structure (no markdown, no code blocks):**
@@ -110,6 +111,7 @@ SWE_CURATOR_PROMPT_NO_GT = """You are a master curator of knowledge. Your job is
   - others
 - For any operation if no new content to add, return an empty list for the operations field
 - Be concise and specific - each addition should be actionable
+- Every ADD.content value must be a single-line plain-text sentence. Do not include newlines, bullet lists, markdown, or code fences in content.
 
 
 **Training Context:**
@@ -142,7 +144,7 @@ Output ONLY a valid JSON object with these exact fields:
 **Available Operations:**
 1. ADD: Create new bullet points with fresh IDs
     - section: the section to add the new bullet to
-    - content: the new content of the bullet. Note: no need to include the bullet_id in the content like '[ctx-00263] helpful=1 harmful=0 ::', the bullet_id will be added by the system.
+    - content: the new content of the bullet. It must be a single-line plain-text sentence with no newlines, bullet lists, markdown, or code fences. Note: no need to include the bullet_id in the content like '[ctx-00263] helpful=1 harmful=0 ::', the bullet_id will be added by the system.
     - reason: a short explanation of why this bullet is being added based on the reflection
 
 **RESPONSE FORMAT - Output ONLY this JSON structure (no markdown, no code blocks):**
