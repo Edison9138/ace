@@ -703,7 +703,9 @@ class ACE:
                 call_id=step_id,
                 log_dir=log_dir,
                 next_global_id=self.next_global_id,
-                reasoning_trace=extract_reasoning_trace(gen_response),
+                reasoning_trace=extract_reasoning_trace(
+                    gen_response, field="curator_reasoning"
+                ),
                 prompt_playbook=playbook_for_curator,
             )
             
