@@ -508,6 +508,10 @@ def _load_transport_payload(raw: str) -> dict:
 # Per-message cap applied when formatting the trajectory string for the
 # reflector / curator.  Matches ace-appworld's truncate_output limit.
 _TRAJ_PER_MESSAGE_CHARS = 20_000
+_PR_DESCRIPTION_BLOCK_RE = re.compile(
+    r"(?s)<pr_description>\s*.*?\s*</pr_description>"
+)
+_REFLECTION_BLOCK_RE = re.compile(r"(?s)<reflection>\s*.*?\s*</reflection>")
 
 
 def _extract_commands_from_actions(msg: dict[str, Any]) -> list[str]:
@@ -587,6 +591,24 @@ def _format_assistant_trace_content(msg: dict[str, Any]) -> str:
     return "\n\n".join(part for part in parts if part)
 
 
+def _format_initial_user_trace_content_for_curator(content: Any) -> str:
+    """Redact duplicated task/reflection blocks while preserving instructions."""
+    if isinstance(content, str):
+        text = content
+    elif content in (None, ""):
+        return ""
+    else:
+        text = str(content)
+
+    text = _PR_DESCRIPTION_BLOCK_RE.sub(
+        "<pr_description omitted; see Question Context>", text
+    )
+    text = _REFLECTION_BLOCK_RE.sub(
+        "<reflection omitted; see Recent Reflection>", text
+    )
+    return text.strip()
+
+
 def _extract_bullet_ids_from_trajectory(
     agent: "DefaultAgent | None",
 ) -> list[str]:
@@ -609,20 +631,21 @@ def _extract_bullet_ids_from_trajectory(
     return list(dict.fromkeys(bullet_ids))
 
 
-def _format_trajectory_for_reflector(
+def _format_trajectory(
     agent: "DefaultAgent | None",
     exit_status: str,
     instance_id: str,
+    *,
+    redact_initial_user_for_curator: bool = False,
 ) -> str:
     """Build a rich reasoning trace from the agent's conversation history.
 
     Mirrors ace-appworld's approach: applies ``_trim_messages_for_context``
     (the same two-phase smart trimming used during live agent execution) to
     produce a trimmed copy of the messages, then formats them into a single
-    text block for the reflector and curator.
-
-    Both the reflector and curator receive this same trimmed trace — no
-    additional per-component truncation is applied downstream.
+    text block. The curator can optionally receive a redacted version of the
+    initial user message so duplicated task/reflection context is omitted while
+    preserving the agent instructions.
 
     The system message body (playbook + instructions) is omitted — the
     reflector already receives the playbook via ``bullets_used``.
@@ -650,6 +673,10 @@ def _format_trajectory_for_reflector(
 
         if role == "ASSISTANT":
             content = _format_assistant_trace_content(msg)
+        elif role == "USER" and redact_initial_user_for_curator and i == 1:
+            content = _format_initial_user_trace_content_for_curator(
+                msg.get("content")
+            )
         else:
             content = msg.get("content") or ""
 
@@ -667,6 +694,29 @@ def _format_trajectory_for_reflector(
     trajectory = "\n\n".join(formatted)
 
     return header + "\n\n=== FULL AGENT TRAJECTORY ===\n\n" + trajectory
+
+
+def _format_trajectory_for_reflector(
+    agent: "DefaultAgent | None",
+    exit_status: str,
+    instance_id: str,
+) -> str:
+    """Build the full reasoning trace shown to the reflector."""
+    return _format_trajectory(agent, exit_status, instance_id)
+
+
+def _format_trajectory_for_curator(
+    agent: "DefaultAgent | None",
+    exit_status: str,
+    instance_id: str,
+) -> str:
+    """Build the curator trace with duplicated setup blocks redacted."""
+    return _format_trajectory(
+        agent,
+        exit_status,
+        instance_id,
+        redact_initial_user_for_curator=True,
+    )
 
 
 def _coerce_agent_run_result(result: Any) -> tuple[str, str]:
@@ -1134,10 +1184,16 @@ class SWEBenchProGenerator(Generator):
         # Scan assistant messages for explicit [xxx-00001] references.
         bullet_ids = _extract_bullet_ids_from_trajectory(agent)
         reasoning = _format_trajectory_for_reflector(agent, exit_status, instance_id)
+        curator_reasoning = _format_trajectory_for_curator(
+            agent,
+            exit_status,
+            instance_id,
+        )
 
         response = json.dumps(
             {
                 "reasoning": reasoning,
+                "curator_reasoning": curator_reasoning,
                 "bullet_ids": bullet_ids,
                 "final_answer": patch,
             }
