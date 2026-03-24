@@ -5,3 +5,4 @@ __pycache__/
 */__pycache__/
 results/
 .DS_Store
+/SWE-bench_Pro-os/
