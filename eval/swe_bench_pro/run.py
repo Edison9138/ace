@@ -23,15 +23,44 @@ from .prompts.curator_prompts import (
 )
 from .prompts.reflector_prompts import SWE_REFLECTOR_PROMPT_WITH_GT, SWE_REFLECTOR_PROMPT_NO_GT
 
+SUPPORTED_MODES = {"offline"}
+UNIMPLEMENTED_MODES = {"online", "eval_only"}
+
+
+def validate_mode(mode: str, parser: argparse.ArgumentParser | None = None) -> None:
+    """Reject unsupported SWE-bench Pro runner modes with task-specific errors."""
+    if mode in SUPPORTED_MODES:
+        return
+
+    if mode in UNIMPLEMENTED_MODES:
+        message = (
+            "SWE-bench Pro currently supports only --mode offline; "
+            f"--mode {mode} is not implemented."
+        )
+    else:
+        message = (
+            f"Invalid --mode '{mode}'. "
+            "SWE-bench Pro currently supports only --mode offline."
+        )
+
+    if parser is not None:
+        parser.error(message)
+    raise ValueError(message)
+
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description="Run ACE self-update loop on SWE-bench Pro with mini-swe-agent"
+        description="Run the offline ACE self-update loop on SWE-bench Pro with mini-swe-agent"
     )
 
     # ── Task / mode ───────────────────────────────────────────────────────────
     p.add_argument("--task_name", default="swe_bench_pro")
-    p.add_argument("--mode", choices=["offline", "online", "eval_only"], required=True)
+    p.add_argument(
+        "--mode",
+        required=True,
+        metavar="MODE",
+        help="Run mode. SWE-bench Pro currently supports only 'offline'.",
+    )
     p.add_argument(
         "--config_path",
         default="./eval/swe_bench_pro/data/task_config.json",
@@ -145,6 +174,7 @@ def parse_args():
     p.add_argument("--cost_limit", type=float, default=DEFAULT_COST_LIMIT)
 
     args = p.parse_args()
+    validate_mode(args.mode, parser=p)
     if not args.dockerhub_username:
         p.error("Please provide --dockerhub_username or set DOCKERHUB_USERNAME env var")
     return args
@@ -159,41 +189,37 @@ def load_initial_playbook(path: str | None) -> str:
 
 
 def preprocess_data(task_name: str, config: dict, mode: str, data_processor):
-    """Load and process train/val/test splits following the standard ACE pattern.
+    """Load and process train/val/test splits for SWE-bench Pro offline mode.
 
-    For offline mode: loads train + val (and optionally test).
-    For online / eval_only modes: loads test only.
+    Loads train + val (and optionally test) for offline adaptation.
     """
-    if mode in ("online", "eval_only"):
-        if "test_data" not in config:
-            raise ValueError(f"'{mode}' mode requires 'test_data' in task_config.json")
-        test_samples = data_processor.process_task_data(load_data(config["test_data"]))
-        train_samples = val_samples = None
-        print(f"{mode} mode: {len(test_samples)} test samples")
-    else:  # offline
-        if "train_data" not in config or "val_data" not in config:
-            raise ValueError(
-                "'offline' mode requires 'train_data' and 'val_data' in task_config.json"
-            )
-        train_samples = data_processor.process_task_data(
-            load_data(config["train_data"])
+    validate_mode(mode)
+
+    if "train_data" not in config or "val_data" not in config:
+        raise ValueError(
+            "'offline' mode requires 'train_data' and 'val_data' in task_config.json"
         )
-        val_samples = data_processor.process_task_data(load_data(config["val_data"]))
-        test_samples = (
-            data_processor.process_task_data(load_data(config["test_data"]))
-            if "test_data" in config
-            else []
-        )
-        print(
-            f"offline mode: {len(train_samples)} train  "
-            f"{len(val_samples)} val  {len(test_samples)} test"
-        )
+
+    train_samples = data_processor.process_task_data(
+        load_data(config["train_data"])
+    )
+    val_samples = data_processor.process_task_data(load_data(config["val_data"]))
+    test_samples = (
+        data_processor.process_task_data(load_data(config["test_data"]))
+        if "test_data" in config
+        else []
+    )
+    print(
+        f"offline mode: {len(train_samples)} train  "
+        f"{len(val_samples)} val  {len(test_samples)} test"
+    )
 
     return train_samples, val_samples, test_samples
 
 
 def main():
     args = parse_args()
+    validate_mode(args.mode)
 
     # 1. Load task config
     with open(args.config_path, "r") as f:
