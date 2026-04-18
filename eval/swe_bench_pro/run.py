@@ -6,7 +6,7 @@ import sys
 # Run this script from the ace repo root: python -m eval.swe_bench_pro.run --mode ...
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-from ace import ACE
+from ace import ACE, ACEBatch
 from ace.core import Curator, Reflector
 from .swe_generator import (
     SWEBenchProGenerator,
@@ -60,6 +60,12 @@ def parse_args():
         required=True,
         metavar="MODE",
         help="Run mode. SWE-bench Pro currently supports only 'offline'.",
+    )
+    p.add_argument(
+        "--ace_backend",
+        choices=["ace", "ace_batch"],
+        default="ace",
+        help="Orchestrator backend to use. Keep default 'ace' for stable baseline.",
     )
     p.add_argument(
         "--config_path",
@@ -148,6 +154,34 @@ def parse_args():
     # Keep playbooks compact by default; oversized playbooks can consume most
     # of the model context window before any tool interaction happens.
     p.add_argument("--playbook_token_budget", type=int, default=80000)
+    p.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="Generator/reflector batch size used by ACEBatch.",
+    )
+    p.add_argument(
+        "--curator_batch_size",
+        type=int,
+        default=None,
+        help="Optional curator chunk size for ACEBatch (defaults to batch_size).",
+    )
+    p.add_argument(
+        "--augmented_shuffling",
+        action="store_true",
+        help="Enable reflection/context duplication + shuffle in ACEBatch Phase 2.",
+    )
+    p.add_argument(
+        "--augmented_shuffling_factor",
+        type=int,
+        default=2,
+        help="Duplication factor used with --augmented_shuffling.",
+    )
+    p.add_argument(
+        "--continue_on_llm_error",
+        action="store_true",
+        help="Continue training on recoverable LLM/API errors in ACEBatch.",
+    )
 
     # ── Data slicing (replaces the old [:3] hardcode) ─────────────────────────
     p.add_argument(
@@ -266,7 +300,8 @@ def main():
         print("No initial playbook found — starting with empty playbook")
 
     # 6. Build ACE system
-    ace_system = ACE(
+    ace_cls = ACEBatch if args.ace_backend == "ace_batch" else ACE
+    ace_system = ace_cls(
         api_provider=args.api_provider,
         generator_model=args.generator_model,
         reflector_model=args.reflector_model,
@@ -274,6 +309,7 @@ def main():
         max_tokens=args.max_tokens,
         initial_playbook=initial_playbook,
     )
+    print(f"Using orchestrator backend: {args.ace_backend}")
 
     ace_system.generator = SWEBenchProGenerator(
         api_client=ace_system.generator_client,
@@ -332,6 +368,11 @@ def main():
         "step_limit": args.step_limit,
         "cost_limit": args.cost_limit,
         "dockerhub_username": args.dockerhub_username,
+        "batch_size": args.batch_size,
+        "curator_batch_size": args.curator_batch_size,
+        "augmented_shuffling": args.augmented_shuffling,
+        "augmented_shuffling_factor": args.augmented_shuffling_factor,
+        "continue_on_llm_error": args.continue_on_llm_error,
     }
 
     results = ace_system.run(
