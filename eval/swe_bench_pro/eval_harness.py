@@ -99,7 +99,7 @@ def load_local_script(scripts_dir, instance_id, script_name):
     if scripts_dir:
         script_path = os.path.join(scripts_dir, instance_id, script_name)
         if os.path.exists(script_path):
-            with open(script_path, "r") as f:
+            with open(script_path, "r", encoding="utf-8") as f:
                 return f.read()
     return load_github_script(instance_id, script_name)
 
@@ -119,7 +119,7 @@ def load_base_docker(iid, dockerfiles_dir):
     if dockerfiles_dir:
         path = os.path.join(dockerfiles_dir, "base_dockerfile", iid, "Dockerfile")
         if os.path.exists(path):
-            with open(path) as fp:
+            with open(path, encoding="utf-8") as fp:
                 return fp.read()
     return load_github_base_docker(iid)
 
@@ -139,7 +139,7 @@ def instance_docker(iid, dockerfiles_dir):
     if dockerfiles_dir:
         path = os.path.join(dockerfiles_dir, "instance_dockerfile", iid, "Dockerfile")
         if os.path.exists(path):
-            with open(path) as fp:
+            with open(path, encoding="utf-8") as fp:
                 return fp.read()
     return load_github_instance_docker(iid)
 
@@ -190,13 +190,17 @@ def prepare_run(uid, output_dir, prefix, redo):
     output_path = os.path.join(uid_dir, f"{prefix}_output.json")
     if not redo and os.path.exists(output_path):
         print(f"Skipping {uid} - output already exists")
-        with open(output_path, "r") as f:
+        with open(output_path, "r", encoding="utf-8") as f:
             return json.load(f)
     return None
 
 
 def _write_output_snapshot(output_dir, uid, prefix, output):
-    with open(os.path.join(output_dir, uid, f"{prefix}_output.json"), "w") as f:
+    with open(
+        os.path.join(output_dir, uid, f"{prefix}_output.json"),
+        "w",
+        encoding="utf-8",
+    ) as f:
         json.dump(output, f)
 
 
@@ -233,14 +237,24 @@ def collect_outputs_modal(sandbox, output_dir, uid, prefix):
     # Save logs first (best-effort)
     try:
         with sandbox.open("/workspace/stdout.log", "r") as f_in:
-            with open(os.path.join(output_dir, uid, f"{prefix}_stdout.log"), "w") as f:
+            with open(
+                os.path.join(output_dir, uid, f"{prefix}_stdout.log"),
+                "w",
+                encoding="utf-8",
+                errors="replace",
+            ) as f:
                 stdout_content = f_in.read()
                 f.write(stdout_content if stdout_content is not None else "")
     except FileNotFoundError:
         pass
     try:
         with sandbox.open("/workspace/stderr.log", "r") as f_in:
-            with open(os.path.join(output_dir, uid, f"{prefix}_stderr.log"), "w") as f:
+            with open(
+                os.path.join(output_dir, uid, f"{prefix}_stderr.log"),
+                "w",
+                encoding="utf-8",
+                errors="replace",
+            ) as f:
                 stderr_content = f_in.read()
                 f.write(stderr_content if stderr_content is not None else "")
     except FileNotFoundError:
@@ -278,7 +292,11 @@ def collect_outputs_modal(sandbox, output_dir, uid, prefix):
 
 
 def save_entryscript_copy(output_dir, uid, prefix, entryscript_content):
-    with open(os.path.join(output_dir, uid, f"{prefix}_entryscript.sh"), "w") as f:
+    with open(
+        os.path.join(output_dir, uid, f"{prefix}_entryscript.sh"),
+        "w",
+        encoding="utf-8",
+    ) as f:
         f.write(entryscript_content if entryscript_content is not None else "")
 
 
@@ -429,7 +447,11 @@ def eval_with_modal(
 
 
 def write_patch_snapshot(output_dir, uid, prefix, patch):
-    with open(os.path.join(output_dir, uid, f"{prefix}_patch.diff"), "w") as f:
+    with open(
+        os.path.join(output_dir, uid, f"{prefix}_patch.diff"),
+        "w",
+        encoding="utf-8",
+    ) as f:
         f.write(patch)
 
 
