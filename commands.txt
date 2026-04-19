@@ -1,0 +1,52 @@
+# 1) Naive scaling (bs=10)
+PYTHONIOENCODING=utf-8 PYTHONWARNINGS='ignore:2026-03-09:UserWarning,ignore:2026-03-05:UserWarning' \
+uv run python -m eval.swe_bench_pro.run \
+  --task_name swe_bench_pro_flipt \
+  --mode offline \
+  --ace_backend ace_batch \
+  --data_jsonl "eval/swe_bench_pro/data/sweap_eval_flipt_v2.jsonl" \
+  --config_path "eval/swe_bench_pro/data/task_config.json" \
+  --initial_playbook "eval/swe_bench_pro/playbooks/swe_bench_pro_flipt_playbook.txt" \
+  --dockerhub_username jefzda \
+  --num_epochs 1 \
+  --max_num_rounds 1 \
+  --curator_frequency 1 \
+  --eval_steps 5 \
+  --save_steps 1 \
+  --playbook_token_budget 80000 \
+  --test_workers 20 \
+  --step_limit 80 \
+  --cost_limit 10.0 \
+  --batch_size 10 \
+  --curator_batch_size 10 \
+  --continue_on_llm_error \
+  --traj_dir "eval/swe_bench_pro/results/flipt_batch10_naive_1/trajectories" \
+  --save_dir "eval/swe_bench_pro/results/flipt_batch10_naive_1"
+
+
+  # 2) Parallel scan aggregation + augmented shuffling (bs=10)
+PYTHONIOENCODING=utf-8 PYTHONWARNINGS='ignore:2026-03-09:UserWarning,ignore:2026-03-05:UserWarning' \
+uv run python -m eval.swe_bench_pro.run \
+  --task_name swe_bench_pro_flipt \
+  --mode offline \
+  --ace_backend ace_batch \
+  --data_jsonl "eval/swe_bench_pro/data/sweap_eval_flipt_v2.jsonl" \
+  --config_path "eval/swe_bench_pro/data/task_config.json" \
+  --initial_playbook "eval/swe_bench_pro/playbooks/swe_bench_pro_flipt_playbook.txt" \
+  --dockerhub_username jefzda \
+  --num_epochs 1 \
+  --max_num_rounds 1 \
+  --curator_frequency 1 \
+  --eval_steps 5 \
+  --save_steps 1 \
+  --playbook_token_budget 80000 \
+  --test_workers 20 \
+  --step_limit 80 \
+  --cost_limit 10.0 \
+  --batch_size 10 \
+  --curator_batch_size 3 \
+  --augmented_shuffling \
+  --augmented_shuffling_factor 2 \
+  --continue_on_llm_error \
+  --traj_dir "eval/swe_bench_pro/results/flipt_batch10_scan_aug_1/trajectories" \
+  --save_dir "eval/swe_bench_pro/results/flipt_batch10_scan_aug_1"
