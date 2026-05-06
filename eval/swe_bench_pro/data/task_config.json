@@ -10,5 +10,11 @@
     "test_data": "eval/swe_bench_pro/data/test_flipt.jsonl",
     "val_data": "eval/swe_bench_pro/data/val_flipt.jsonl",
     "train_data": "eval/swe_bench_pro/data/train_flipt.jsonl"
+  },
+  "swe_bench_pro_flipt_60_25": {
+    "raw_data": "eval/swe_bench_pro/data/sweap_eval_flipt_v2.jsonl",
+    "test_data": "eval/swe_bench_pro/data/flipt_60_25/test_flipt.jsonl",
+    "val_data": "eval/swe_bench_pro/data/flipt_60_25/val_flipt.jsonl",
+    "train_data": "eval/swe_bench_pro/data/flipt_60_25/train_flipt.jsonl"
   }
 }
