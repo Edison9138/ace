@@ -2,15 +2,17 @@
 set -euo pipefail
 
 # Usage:
-#   bash eval/swe_bench_pro/scripts/run_flipt_acebatch.sh [smoke|pilot|full] [run_name]
+#   bash eval/swe_bench_pro/scripts/run_flipt_acebatch.sh [smoke|pilot|full|scan_aug] [run_name]
 #
 # Examples:
 #   bash eval/swe_bench_pro/scripts/run_flipt_acebatch.sh smoke flipt_batch_smoke0
 #   bash eval/swe_bench_pro/scripts/run_flipt_acebatch.sh pilot flipt_batch_pilot0
 #   bash eval/swe_bench_pro/scripts/run_flipt_acebatch.sh full flipt_batch0
+#   bash eval/swe_bench_pro/scripts/run_flipt_acebatch.sh scan_aug flipt_scan_aug0
 
 PROFILE="${1:-full}"
 RUN_NAME="${2:-flipt_batch_${PROFILE}0}"
+SCAN_AUG=false
 
 case "${PROFILE}" in
   smoke)
@@ -49,15 +51,35 @@ case "${PROFILE}" in
     BATCH_SIZE=2
     CURATOR_BATCH_SIZE=2
     ;;
+  scan_aug)
+    NUM_TRAIN_SAMPLES=""
+    NUM_VAL_SAMPLES=""
+    NUM_TEST_SAMPLES=""
+    TEST_WORKERS=20
+    EVAL_STEPS=5
+    SAVE_STEPS=1
+    STEP_LIMIT=80
+    COST_LIMIT=10.0
+    BATCH_SIZE=30
+    # Leave unset so --scan_aug derives round(sqrt(30)) = 5.
+    CURATOR_BATCH_SIZE=""
+    SCAN_AUG=true
+    ;;
   *)
     echo "Invalid profile: ${PROFILE}" >&2
-    echo "Use one of: smoke, pilot, full" >&2
+    echo "Use one of: smoke, pilot, full, scan_aug" >&2
     exit 1
     ;;
 esac
 
 SAVE_DIR="eval/swe_bench_pro/results/${RUN_NAME}"
 TRAJ_DIR="${SAVE_DIR}/trajectories"
+
+if ! mkdir "${SAVE_DIR}"; then
+  echo "Refusing to reuse existing result directory: ${SAVE_DIR}" >&2
+  echo "Choose a new run_name to avoid contaminating old eval_outputs/trajectories." >&2
+  exit 1
+fi
 
 ARGS=(
   --task_name swe_bench_pro_flipt
@@ -77,12 +99,17 @@ ARGS=(
   --step_limit "${STEP_LIMIT}"
   --cost_limit "${COST_LIMIT}"
   --batch_size "${BATCH_SIZE}"
-  --curator_batch_size "${CURATOR_BATCH_SIZE}"
   --continue_on_llm_error
   --traj_dir "${TRAJ_DIR}"
   --save_dir "${SAVE_DIR}"
 )
 
+if [[ -n "${CURATOR_BATCH_SIZE}" ]]; then
+  ARGS+=(--curator_batch_size "${CURATOR_BATCH_SIZE}")
+fi
+if [[ "${SCAN_AUG}" == "true" ]]; then
+  ARGS+=(--scan_aug --skip_post_curate_generation)
+fi
 if [[ -n "${NUM_TRAIN_SAMPLES}" ]]; then
   ARGS+=(--num_train_samples "${NUM_TRAIN_SAMPLES}")
 fi
