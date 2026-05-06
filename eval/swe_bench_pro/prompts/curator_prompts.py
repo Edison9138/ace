@@ -3,9 +3,10 @@ SWE-bench Pro specific curator prompts.
 
 These differ from the standard ACE curator prompts in two ways:
 
-1. They expose the generator's agent trajectory as extra curator context.
-   For SWE, the generator is a coding agent whose trajectory carries useful
-   process-level information that can complement the reflector summary.
+1. They can expose the generator's agent trajectory as extra curator context
+   when the runner enables that debug path. By default, SWE scan-aug curation
+   uses reflections plus task context only, matching Terminal-Bench trace mode
+   more closely and avoiding oversized curator prompts.
 
 2. They ask each ADD operation to include a short ``reason``. This is useful
    audit metadata for SWE playbook curation, but is not required by the

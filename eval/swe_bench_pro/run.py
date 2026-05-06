@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import os
 import sys
 
@@ -25,6 +26,7 @@ from .prompts.reflector_prompts import SWE_REFLECTOR_PROMPT_WITH_GT, SWE_REFLECT
 
 SUPPORTED_MODES = {"offline"}
 UNIMPLEMENTED_MODES = {"online", "eval_only"}
+SWARM_AUGMENTED_SHUFFLING_FACTOR = 2
 
 
 def validate_mode(mode: str, parser: argparse.ArgumentParser | None = None) -> None:
@@ -178,9 +180,39 @@ def parse_args():
         help="Duplication factor used with --augmented_shuffling.",
     )
     p.add_argument(
+        "--swarm",
+        action="store_true",
+        help=(
+            "Enable Combee-style concurrent curator chunks and augmented "
+            "shuffling. Derives curator_batch_size=round(sqrt(batch_size)) "
+            "unless --curator_batch_size is provided."
+        ),
+    )
+    p.add_argument(
+        "--scan_aug",
+        action="store_true",
+        help="Alias for --swarm.",
+    )
+    p.add_argument(
         "--continue_on_llm_error",
         action="store_true",
         help="Continue training on recoverable LLM/API errors in ACEBatch.",
+    )
+    p.add_argument(
+        "--skip_post_curate_generation",
+        action="store_true",
+        help=(
+            "Skip ACEBatch Phase 3 post-curator generation during training and "
+            "reuse first-pass results for post-train metrics."
+        ),
+    )
+    p.add_argument(
+        "--include_curator_reasoning_trace",
+        action="store_true",
+        help=(
+            "Debug option: include raw mini-swe-agent trajectories in curator "
+            "prompts. Disabled by default to match trace-mode Combee inputs."
+        ),
     )
 
     # ── Data slicing (replaces the old [:3] hardcode) ─────────────────────────
@@ -212,6 +244,30 @@ def parse_args():
     if not args.dockerhub_username:
         p.error("Please provide --dockerhub_username or set DOCKERHUB_USERNAME env var")
     return args
+
+
+def resolve_acebatch_options(args: argparse.Namespace) -> dict:
+    """Resolve scan-aug/swarm options without changing baseline defaults."""
+    scan_aug_enabled = bool(args.swarm or args.scan_aug)
+
+    curator_batch_size = args.curator_batch_size
+    if scan_aug_enabled and curator_batch_size is None:
+        curator_batch_size = max(1, round(math.sqrt(args.batch_size)))
+
+    augmented_shuffling = bool(args.augmented_shuffling or scan_aug_enabled)
+    augmented_shuffling_factor = args.augmented_shuffling_factor
+    if scan_aug_enabled:
+        augmented_shuffling_factor = max(
+            augmented_shuffling_factor,
+            SWARM_AUGMENTED_SHUFFLING_FACTOR,
+        )
+
+    return {
+        "scan_aug_enabled": scan_aug_enabled,
+        "curator_batch_size": curator_batch_size,
+        "augmented_shuffling": augmented_shuffling,
+        "augmented_shuffling_factor": augmented_shuffling_factor,
+    }
 
 
 def load_initial_playbook(path: str | None) -> str:
@@ -254,6 +310,7 @@ def preprocess_data(task_name: str, config: dict, mode: str, data_processor):
 def main():
     args = parse_args()
     validate_mode(args.mode)
+    acebatch_options = resolve_acebatch_options(args)
 
     # 1. Load task config
     with open(args.config_path, "r") as f:
@@ -352,6 +409,29 @@ def main():
     )
 
     # 8. Run
+    if acebatch_options["scan_aug_enabled"]:
+        print(
+            "Combee scan-aug enabled: "
+            f"batch_size={args.batch_size}, "
+            f"curator_batch_size={acebatch_options['curator_batch_size']}, "
+            f"augmented_shuffling_factor="
+            f"{acebatch_options['augmented_shuffling_factor']}"
+        )
+    else:
+        effective_cbs = (
+            args.curator_batch_size
+            if args.curator_batch_size is not None
+            else args.batch_size
+        )
+        print(
+            "ACEBatch options: "
+            f"batch_size={args.batch_size}, "
+            f"curator_batch_size={effective_cbs}, "
+            f"augmented_shuffling={acebatch_options['augmented_shuffling']}, "
+            f"augmented_shuffling_factor="
+            f"{acebatch_options['augmented_shuffling_factor']}"
+        )
+
     run_config = {
         "task_name": args.task_name,
         "save_dir": args.save_dir,
@@ -369,10 +449,14 @@ def main():
         "cost_limit": args.cost_limit,
         "dockerhub_username": args.dockerhub_username,
         "batch_size": args.batch_size,
-        "curator_batch_size": args.curator_batch_size,
-        "augmented_shuffling": args.augmented_shuffling,
-        "augmented_shuffling_factor": args.augmented_shuffling_factor,
+        "curator_batch_size": acebatch_options["curator_batch_size"],
+        "augmented_shuffling": acebatch_options["augmented_shuffling"],
+        "augmented_shuffling_factor": acebatch_options[
+            "augmented_shuffling_factor"
+        ],
         "continue_on_llm_error": args.continue_on_llm_error,
+        "skip_post_curate_generation": args.skip_post_curate_generation,
+        "include_curator_reasoning_trace": args.include_curator_reasoning_trace,
     }
 
     results = ace_system.run(

@@ -22,6 +22,9 @@ from utils import *
 
 # Placeholder answer when API error occurs - will be marked incorrect by answer_is_correct
 INCORRECT_DUE_TO_API_ERROR = "INCORRECT_DUE_TO_API_ERROR"
+DEFAULT_CURATOR_REFLECTION_MAX_CHARS = 60_000
+DEFAULT_CURATOR_CONTEXT_MAX_CHARS = 60_000
+DEFAULT_CURATOR_REASONING_MAX_CHARS = 20_000
 
 
 class ACEBatch:
@@ -125,7 +128,7 @@ class ACEBatch:
         else:
             cbs = int(cbs)
         cbs = max(1, cbs)
-        use_aug = config.get("augmented_shuffling", True)
+        use_aug = config.get("augmented_shuffling", False)
         aug_factor = int(config.get("augmented_shuffling_factor", 2))
         if not use_aug:
             aug_factor = 1
@@ -149,6 +152,26 @@ class ACEBatch:
             'curator_batch_size': cbs,
             'augmented_shuffling_factor': aug_factor,
             'continue_on_llm_error': config.get('continue_on_llm_error', False),
+            'skip_post_curate_generation': config.get('skip_post_curate_generation', False),
+            'include_curator_reasoning_trace': config.get('include_curator_reasoning_trace', False),
+            'curator_reflection_max_chars': int(
+                config.get(
+                    'curator_reflection_max_chars',
+                    DEFAULT_CURATOR_REFLECTION_MAX_CHARS,
+                )
+            ),
+            'curator_context_max_chars': int(
+                config.get(
+                    'curator_context_max_chars',
+                    DEFAULT_CURATOR_CONTEXT_MAX_CHARS,
+                )
+            ),
+            'curator_reasoning_max_chars': int(
+                config.get(
+                    'curator_reasoning_max_chars',
+                    DEFAULT_CURATOR_REASONING_MAX_CHARS,
+                )
+            ),
         }
 
     def _use_single_pass_accuracy(self, data_processor) -> bool:
@@ -185,6 +208,20 @@ class ACEBatch:
             "504",
         )
         return any(marker in text for marker in markers)
+
+    @staticmethod
+    def _truncate_middle(text: str, max_chars: int, label: str) -> str:
+        """Bound prompt field size while preserving head and tail context."""
+        if max_chars <= 0 or not isinstance(text, str) or len(text) <= max_chars:
+            return text
+        marker = (
+            f"\n\n...[{label} truncated: "
+            f"{len(text) - max_chars} chars omitted]...\n\n"
+        )
+        keep = max(0, max_chars - len(marker))
+        head = keep // 2
+        tail = keep - head
+        return text[:head] + marker + (text[-tail:] if tail else "")
 
     def _should_continue_on_error(
         self,
@@ -367,22 +404,45 @@ class ACEBatch:
             )
             results['training_results'] = training_results
             
-            # 3. Run final test if test_samples provided
+            # 3. Run final tests if test_samples provided
             if test_samples:
                 print(f"\n{'='*60}")
-                print(f"FINAL TEST (with best playbook)")
+                print(f"FINAL TEST (with validation-best playbook)")
                 print(f"{'='*60}\n")
-                final_test_results = self._run_test(
+                best_playbook_test_results = self._run_test(
                     test_samples=test_samples,
                     data_processor=data_processor,
                     playbook=self.best_playbook,
                     config=config,
                     log_dir=log_dir,
                     save_path=save_path,
-                    prefix="final"
+                    prefix="best_playbook"
                 )
-                results['final_test_results'] = final_test_results
-                print(f"Final Test Accuracy: {final_test_results['accuracy']:.3f}\n")
+                results['best_playbook_test_results'] = best_playbook_test_results
+                # Backward-compatible alias for consumers that expect the old key.
+                results['final_test_results'] = best_playbook_test_results
+                print(
+                    "Best Playbook Test Accuracy: "
+                    f"{best_playbook_test_results['accuracy']:.3f}\n"
+                )
+
+                print(f"\n{'='*60}")
+                print(f"FINAL TEST (with final playbook)")
+                print(f"{'='*60}\n")
+                final_playbook_test_results = self._run_test(
+                    test_samples=test_samples,
+                    data_processor=data_processor,
+                    playbook=self.playbook,
+                    config=config,
+                    log_dir=log_dir,
+                    save_path=save_path,
+                    prefix="final_playbook"
+                )
+                results['final_playbook_test_results'] = final_playbook_test_results
+                print(
+                    "Final Playbook Test Accuracy: "
+                    f"{final_playbook_test_results['accuracy']:.3f}\n"
+                )
         
         elif mode == 'online':
             # ONLINE MODE WORKFLOW
@@ -447,7 +507,14 @@ class ACEBatch:
             print(f"Best Validation Accuracy: {results['training_results']['best_validation_accuracy']:.3f}")
             if test_samples:
                 print(f"Initial Test Accuracy: {results['initial_test_results']['accuracy']:.3f}")
-                print(f"Final Test Accuracy: {results['final_test_results']['accuracy']:.3f}")
+                print(
+                    "Best Playbook Test Accuracy: "
+                    f"{results['best_playbook_test_results']['accuracy']:.3f}"
+                )
+                print(
+                    "Final Playbook Test Accuracy: "
+                    f"{results['final_playbook_test_results']['accuracy']:.3f}"
+                )
         elif mode == 'online':
             print(f"Initial Test Accuracy: {results['initial_test_results']['accuracy']:.3f}")
             print(f"Final Test Accuracy: {results['online_test_results']['accuracy']:.3f}")
@@ -574,6 +641,11 @@ class ACEBatch:
                 return self.generator.get_bullets_for_reflector(playbook, ids)
             return extract_playbook_bullets(playbook, ids)
 
+        def _get_predicted_answer_for_reflector(answer: str) -> str:
+            if hasattr(self.generator, "get_predicted_answer_for_reflector"):
+                return self.generator.get_predicted_answer_for_reflector(answer)
+            return answer
+
         # Work with a local copy of the playbook (thread-safe)
         local_playbook = playbook_snapshot
 
@@ -685,7 +757,7 @@ class ACEBatch:
                 reflection_content, bullet_tags, _ = self.reflector.reflect(
                     question=question,
                     reasoning_trace=extract_reasoning_trace(gen_response),
-                    predicted_answer=final_answer,
+                    predicted_answer=_get_predicted_answer_for_reflector(final_answer),
                     ground_truth=reflector_ground_truth,
                     environment_feedback=get_environment_feedback(
                         data_processor,
@@ -755,7 +827,7 @@ class ACEBatch:
                 reflection_content, bullet_tags, _ = self.reflector.reflect(
                     question=question,
                     reasoning_trace=extract_reasoning_trace(gen_response),
-                    predicted_answer=final_answer,
+                    predicted_answer=_get_predicted_answer_for_reflector(final_answer),
                     ground_truth=reflector_ground_truth,
                     environment_feedback="Predicted answer matches ground truth",
                     bullets_used=playbook_bullets,
@@ -948,6 +1020,9 @@ class ACEBatch:
         api_error_count = 0
         skipped_learning_count = 0
         infra_failure_count = 0
+        include_curator_reasoning_trace = config_params.get(
+            "include_curator_reasoning_trace", False
+        )
         for result in sample_results:
             if result.get("pre_train_answer") == INCORRECT_DUE_TO_API_ERROR:
                 api_error_count += 1
@@ -965,8 +1040,10 @@ class ACEBatch:
                     "context": result.get(
                         "curator_question_context", result.get("context", "")
                     ),
-                    "reasoning_trace": result.get(
-                        "curator_reasoning_trace", "(not available)"
+                    "reasoning_trace": (
+                        result.get("curator_reasoning_trace", "(not available)")
+                        if include_curator_reasoning_trace
+                        else "(not available)"
                     ),
                 }
             )
@@ -1012,6 +1089,9 @@ class ACEBatch:
                 f"from {len(batch)} samples"
             )
 
+        playbook_snapshot_for_curator = self.playbook
+        snapshot_next_global_id = self.next_global_id
+
         last_batch_step = batch_step_start + len(batch) - 1
         curator_trigger_steps = [
             step for step in range(batch_step_start, last_batch_step + 1)
@@ -1029,33 +1109,35 @@ class ACEBatch:
             last_step: int,
             call_id: str,
             diag_chunk_size: int,
-        ) -> None:
+        ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
             try:
                 cr_tokens = count_tokens(combined_reflection)
                 cc_tokens = count_tokens(combined_context)
                 rt_tokens = count_tokens(combined_reasoning_trace)
-                pb_tokens = count_tokens(self.playbook)
+                pb_tokens = count_tokens(playbook_snapshot_for_curator)
                 print(
                     f"  [DIAG] curator_chunk_size={diag_chunk_size} | "
                     f"reflection={cr_tokens} tok | context={cc_tokens} tok | "
-                    f"reasoning={rt_tokens} tok | playbook={pb_tokens} tok | "
+                    f"reasoning={rt_tokens} tok | snapshot_playbook={pb_tokens} tok | "
                     f"total~{cr_tokens + cc_tokens + rt_tokens + pb_tokens} tok"
                 )
             except Exception:
                 pass
 
             stats = (
-                self.generator.get_playbook_stats_for_curator(self.playbook)
+                self.generator.get_playbook_stats_for_curator(
+                    playbook_snapshot_for_curator
+                )
                 if hasattr(self.generator, "get_playbook_stats_for_curator")
-                else get_playbook_stats(self.playbook)
+                else get_playbook_stats(playbook_snapshot_for_curator)
             )
             playbook_for_curator = (
-                self.generator.get_playbook_for_curator(self.playbook)
+                self.generator.get_playbook_for_curator(playbook_snapshot_for_curator)
                 if hasattr(self.generator, "get_playbook_for_curator")
-                else self.playbook
+                else playbook_snapshot_for_curator
             )
-            self.playbook, self.next_global_id, _, _ = self.curator.curate(
-                current_playbook=self.playbook,
+            _, _, operations, call_info = self.curator.curate(
+                current_playbook=playbook_snapshot_for_curator,
                 recent_reflection=combined_reflection,
                 question_context=combined_context,
                 current_step=last_step,
@@ -1066,20 +1148,11 @@ class ACEBatch:
                 use_json_mode=use_json_mode,
                 call_id=call_id,
                 log_dir=log_dir,
-                next_global_id=self.next_global_id,
+                next_global_id=snapshot_next_global_id,
                 reasoning_trace=combined_reasoning_trace,
                 prompt_playbook=playbook_for_curator,
             )
-            if self.use_bulletpoint_analyzer and self.bulletpoint_analyzer:
-                print(
-                    f"  Running BulletpointAnalyzer "
-                    f"(threshold={self.bulletpoint_analyzer_threshold})..."
-                )
-                self.playbook = self.bulletpoint_analyzer.analyze(
-                    playbook=self.playbook,
-                    threshold=self.bulletpoint_analyzer_threshold,
-                    merge=True,
-                )
+            return operations, call_info
 
         if not should_run_curator:
             print(
@@ -1097,9 +1170,10 @@ class ACEBatch:
                 len(curator_entries) + curator_batch_size - 1
             ) // curator_batch_size
             print(
-                f"  Running Curator {num_chunks} times "
+                f"  Running Curator concurrently across {num_chunks} chunks "
                 f"(each with up to {curator_batch_size} samples)"
             )
+            chunk_payloads = []
             for chunk_idx in range(num_chunks):
                 start_idx = chunk_idx * curator_batch_size
                 end_idx = min(start_idx + curator_batch_size, len(curator_entries))
@@ -1112,6 +1186,11 @@ class ACEBatch:
                 )
                 if not combined_reflection:
                     combined_reflection = "(empty)"
+                combined_reflection = self._truncate_middle(
+                    combined_reflection,
+                    config_params["curator_reflection_max_chars"],
+                    "curator reflections",
+                )
 
                 combined_context = "\n\n---\n\n".join(
                     f"[Sample {start_idx + i + 1}] {entry['context']}"
@@ -1120,38 +1199,129 @@ class ACEBatch:
                 )
                 if not combined_context:
                     combined_context = "(not available)"
-
-                combined_reasoning_trace = "\n\n---\n\n".join(
-                    f"[Sample {start_idx + i + 1}] {entry['reasoning_trace']}"
-                    for i, entry in enumerate(chunk_entries)
-                    if entry.get("reasoning_trace")
+                combined_context = self._truncate_middle(
+                    combined_context,
+                    config_params["curator_context_max_chars"],
+                    "curator contexts",
                 )
+
+                if include_curator_reasoning_trace:
+                    combined_reasoning_trace = "\n\n---\n\n".join(
+                        f"[Sample {start_idx + i + 1}] {entry['reasoning_trace']}"
+                        for i, entry in enumerate(chunk_entries)
+                        if entry.get("reasoning_trace")
+                    )
+                else:
+                    combined_reasoning_trace = "(not available)"
                 if not combined_reasoning_trace:
                     combined_reasoning_trace = "(not available)"
+                combined_reasoning_trace = self._truncate_middle(
+                    combined_reasoning_trace,
+                    config_params["curator_reasoning_max_chars"],
+                    "curator reasoning traces",
+                )
 
                 print(
                     f"\n--- Curator chunk {chunk_idx + 1}/{num_chunks} "
                     f"(samples {start_idx + 1}-{end_idx}, "
                     f"curator step {curator_step_for_batch}) ---"
                 )
-                _run_one_curator_call(
-                    combined_reflection,
-                    combined_context,
-                    combined_reasoning_trace,
-                    curator_step_for_batch,
-                    f"{step_id_prefix}_s_{curator_step_for_batch}_chunk_{chunk_idx + 1}",
-                    len(chunk_entries),
+                chunk_payloads.append(
+                    {
+                        "chunk_idx": chunk_idx,
+                        "combined_reflection": combined_reflection,
+                        "combined_context": combined_context,
+                        "combined_reasoning_trace": combined_reasoning_trace,
+                        "call_id": (
+                            f"{step_id_prefix}_s_"
+                            f"{curator_step_for_batch}_chunk_{chunk_idx + 1}"
+                        ),
+                        "diag_chunk_size": len(chunk_entries),
+                    }
+                )
+
+            chunk_results = [None] * num_chunks
+            with ThreadPoolExecutor(max_workers=max(1, num_chunks)) as executor:
+                future_to_chunk_idx = {}
+                for payload in chunk_payloads:
+                    future = executor.submit(
+                        _run_one_curator_call,
+                        payload["combined_reflection"],
+                        payload["combined_context"],
+                        payload["combined_reasoning_trace"],
+                        curator_step_for_batch,
+                        payload["call_id"],
+                        payload["diag_chunk_size"],
+                    )
+                    future_to_chunk_idx[future] = payload["chunk_idx"]
+
+                for future in as_completed(future_to_chunk_idx):
+                    chunk_idx = future_to_chunk_idx[future]
+                    try:
+                        operations, call_info = future.result()
+                        chunk_results[chunk_idx] = {
+                            "operations": operations,
+                            "call_info": call_info,
+                        }
+                        print(
+                            f"  Curator chunk {chunk_idx + 1}/{num_chunks} "
+                            f"complete ({len(operations)} operations)"
+                        )
+                    except Exception as e:
+                        print(
+                            f"  ERROR in curator chunk "
+                            f"{chunk_idx + 1}/{num_chunks}: {e}"
+                        )
+                        raise
+
+            merged_operations = []
+            for chunk_idx, chunk_result in enumerate(chunk_results):
+                chunk_operations = (chunk_result or {}).get("operations", [])
+                print(
+                    f"  Merging curator chunk {chunk_idx + 1}/{num_chunks}: "
+                    f"{len(chunk_operations)} operations"
+                )
+                merged_operations.extend(chunk_operations)
+
+            self.playbook, self.next_global_id = apply_curator_operations(
+                playbook_snapshot_for_curator,
+                merged_operations,
+                snapshot_next_global_id,
+            )
+            print(
+                "  Applied merged curator operations once: "
+                f"{len(merged_operations)} operations total"
+            )
+
+            if self.use_bulletpoint_analyzer and self.bulletpoint_analyzer:
+                print(
+                    "  Running BulletpointAnalyzer once after merged apply "
+                    f"(threshold={self.bulletpoint_analyzer_threshold})..."
+                )
+                self.playbook = self.bulletpoint_analyzer.analyze(
+                    playbook=self.playbook,
+                    threshold=self.bulletpoint_analyzer_threshold,
+                    merge=True,
                 )
             print(
-                f"\n  Playbook updated after {num_chunks} Curator calls: "
+                "\n  Playbook updated once after concurrent curation: "
                 f"{count_tokens(self.playbook)} tokens"
             )
 
         # ================================================================
         # PHASE 3: Parallel Post-Curator Generation
         # ================================================================
+        skip_phase3 = config_params.get("skip_post_curate_generation", False)
         print(f"\n{'='*40}")
-        print(f"PHASE 3: Parallel Post-Curator Generation ({len(batch)} samples)")
+        if skip_phase3:
+            print(
+                "PHASE 3: Skipped Post-Curator Generation "
+                f"({len(batch)} samples)"
+            )
+        else:
+            print(
+                f"PHASE 3: Parallel Post-Curator Generation ({len(batch)} samples)"
+            )
         print(f"{'='*40}")
         
         post_curate_results = [None] * len(batch)
@@ -1184,57 +1354,69 @@ class ACEBatch:
                 return final_answer, False, "infra"
             return final_answer, post_correct, "none"
 
-        # Pre-fill samples that should skip post-curator generation.
-        for i, result in enumerate(sample_results):
-            if result.get("pre_train_answer") == INCORRECT_DUE_TO_API_ERROR:
-                post_curate_results[i] = (
-                    INCORRECT_DUE_TO_API_ERROR,
-                    False,
-                    "infra",
-                )
-                continue
-            if result.get("failure_type") == "infra":
-                post_curate_results[i] = (
-                    result.get("final_answer", INCORRECT_DUE_TO_API_ERROR),
-                    False,
-                    "infra",
-                )
-                continue
-            if result.get("skip_post_curate_generation", False):
-                post_curate_results[i] = (
-                    result.get("final_answer", INCORRECT_DUE_TO_API_ERROR),
-                    bool(result.get("is_correct", False)),
-                    result.get("failure_type", "none"),
-                )
-
         phase3_api_error_occurred = False
-        with ThreadPoolExecutor(max_workers=len(batch)) as executor:
-            future_to_idx = {}
+        if skip_phase3:
             for i, result in enumerate(sample_results):
-                if post_curate_results[i] is not None:
+                failure_type = result.get("failure_type", "none")
+                if result.get("pre_train_answer") == INCORRECT_DUE_TO_API_ERROR:
+                    failure_type = "infra"
+                post_curate_results[i] = (
+                    result.get("pre_train_answer", INCORRECT_DUE_TO_API_ERROR),
+                    bool(result.get("pre_train_was_correct", False)),
+                    failure_type,
+                )
+            print("Phase 3 skipped: reused first-pass results for post-train metrics")
+        else:
+            # Pre-fill samples that should skip post-curator generation.
+            for i, result in enumerate(sample_results):
+                if result.get("pre_train_answer") == INCORRECT_DUE_TO_API_ERROR:
+                    post_curate_results[i] = (
+                        INCORRECT_DUE_TO_API_ERROR,
+                        False,
+                        "infra",
+                    )
                     continue
-                future = executor.submit(_post_curate_generate, result)
-                future_to_idx[future] = i
+                if result.get("failure_type") == "infra":
+                    post_curate_results[i] = (
+                        result.get("final_answer", INCORRECT_DUE_TO_API_ERROR),
+                        False,
+                        "infra",
+                    )
+                    continue
+                if result.get("skip_post_curate_generation", False):
+                    post_curate_results[i] = (
+                        result.get("final_answer", INCORRECT_DUE_TO_API_ERROR),
+                        bool(result.get("is_correct", False)),
+                        result.get("failure_type", "none"),
+                    )
 
-            for future in as_completed(future_to_idx):
-                idx = future_to_idx[future]
-                try:
-                    post_curate_results[idx] = future.result()
-                except Exception as e:
-                    if self._should_continue_on_error(e, config_params):
-                        print(
-                            f"  API/LLM ERROR in post-curate sample {idx + 1}: {e} - "
-                            "marking as incorrect, rolling back playbook, continuing"
-                        )
-                        post_curate_results[idx] = (
-                            INCORRECT_DUE_TO_API_ERROR,
-                            False,
-                            "infra",
-                        )
-                        phase3_api_error_occurred = True
-                    else:
-                        print(f"  ERROR in post-curate sample {idx + 1}: {e}")
-                        raise
+            with ThreadPoolExecutor(max_workers=len(batch)) as executor:
+                future_to_idx = {}
+                for i, result in enumerate(sample_results):
+                    if post_curate_results[i] is not None:
+                        continue
+                    future = executor.submit(_post_curate_generate, result)
+                    future_to_idx[future] = i
+
+                for future in as_completed(future_to_idx):
+                    idx = future_to_idx[future]
+                    try:
+                        post_curate_results[idx] = future.result()
+                    except Exception as e:
+                        if self._should_continue_on_error(e, config_params):
+                            print(
+                                f"  API/LLM ERROR in post-curate sample {idx + 1}: {e} - "
+                                "marking as incorrect, rolling back playbook, continuing"
+                            )
+                            post_curate_results[idx] = (
+                                INCORRECT_DUE_TO_API_ERROR,
+                                False,
+                                "infra",
+                            )
+                            phase3_api_error_occurred = True
+                        else:
+                            print(f"  ERROR in post-curate sample {idx + 1}: {e}")
+                            raise
 
         if phase3_api_error_occurred:
             self.playbook = playbook_before_phase2
@@ -1244,7 +1426,8 @@ class ACEBatch:
                 "state due to API error(s)"
             )
 
-        print(f"Phase 3 complete: All {len(batch)} post-curate generations done")
+        if not skip_phase3:
+            print(f"Phase 3 complete: All {len(batch)} post-curate generations done")
 
         # ================================================================
         # Assemble final results
@@ -1322,6 +1505,7 @@ class ACEBatch:
         pre_train_post_train_results = []
         error_logs = []
         best_accuracy = 0.0
+        best_checkpoints = []
         self.best_playbook = self.playbook
 
         num_batches = (len(train_samples) + batch_size - 1) // batch_size
@@ -1329,6 +1513,15 @@ class ACEBatch:
         print(f"Total epochs: {num_epochs}")
         print(f"Train samples per epoch: {len(train_samples)}")
         print(f"Gen batch size: {batch_size} | Curator batch size: {config_params.get('curator_batch_size', 10)}")
+        print(f"Augmented shuffling factor: {config_params.get('augmented_shuffling_factor', 1)}")
+        print(
+            "Post-curate generation: "
+            + (
+                "skipped"
+                if config_params.get("skip_post_curate_generation", False)
+                else "enabled"
+            )
+        )
         print(f"Batches per epoch: {num_batches}")
         print(f"Val samples: {len(val_samples)}")
         print(
@@ -1469,16 +1662,26 @@ class ACEBatch:
                     # Track best playbook
                     if val_results:
                         acc = val_results["accuracy"]
+                        checkpoint = {"epoch": epoch, "step": last_step, "accuracy": acc}
                         if acc > best_accuracy:
                             best_accuracy = acc
+                            best_checkpoints = [checkpoint]
                             self.best_playbook = self.playbook
                             print(f"🎉 New best accuracy: {best_accuracy:.3f}")
+                        elif acc == best_accuracy:
+                            best_checkpoints.append(checkpoint)
+                            self.best_playbook = self.playbook
+                            print(
+                                "Validation tie at best accuracy: "
+                                f"{best_accuracy:.3f}"
+                            )
                     
                     # Save results
                     results_path = os.path.join(save_path, "train_results.json")
                     with open(results_path, "w") as f:
                         json.dump({
                             "best_accuracy": best_accuracy,
+                            "best_checkpoints": best_checkpoints,
                             "results": results,
                         }, f, indent=2)
                     
@@ -1498,6 +1701,7 @@ class ACEBatch:
         with open(results_path, "w") as f:
             json.dump({
                 "best_accuracy": best_accuracy,
+                "best_checkpoints": best_checkpoints,
                 "results": results,
             }, f, indent=2)
         
@@ -1521,7 +1725,10 @@ class ACEBatch:
         print(f"Best Validation Accuracy: {best_accuracy:.3f}")
         print(f"{'='*60}\n")
 
-        return {"best_validation_accuracy": best_accuracy}
+        return {
+            "best_validation_accuracy": best_accuracy,
+            "best_checkpoints": best_checkpoints,
+        }
 
     
     def test(

@@ -374,10 +374,28 @@ def _load_transport_payload(raw: str) -> dict:
 # Per-message cap applied when formatting the trajectory string for the
 # reflector / curator.  Matches ace-appworld's truncate_output limit.
 _TRAJ_PER_MESSAGE_CHARS = 20_000
+_REFLECTOR_TRAJECTORY_MAX_CHARS = 60_000
+_CURATOR_TRAJECTORY_MAX_CHARS = 20_000
+_REFLECTOR_PATCH_MAX_CHARS = 40_000
+_CURATOR_CONTEXT_MAX_CHARS = 60_000
 _PR_DESCRIPTION_BLOCK_RE = re.compile(
     r"(?s)<pr_description>\s*.*?\s*</pr_description>"
 )
 _REFLECTION_BLOCK_RE = re.compile(r"(?s)<reflection>\s*.*?\s*</reflection>")
+
+
+def _truncate_middle_text(text: str, max_chars: int, label: str) -> str:
+    """Limit prompt field size while preserving both the beginning and end."""
+    if max_chars <= 0 or not isinstance(text, str) or len(text) <= max_chars:
+        return text
+    marker = (
+        f"\n\n...[{label} truncated: "
+        f"{len(text) - max_chars} chars omitted]...\n\n"
+    )
+    keep = max(0, max_chars - len(marker))
+    head = keep // 2
+    tail = keep - head
+    return text[:head] + marker + (text[-tail:] if tail else "")
 
 
 def _extract_commands_from_actions(msg: dict[str, Any]) -> list[str]:
@@ -503,6 +521,7 @@ def _format_trajectory(
     instance_id: str,
     *,
     redact_initial_user_for_curator: bool = False,
+    max_total_chars: int | None = None,
 ) -> str:
     """Build a rich reasoning trace from the agent's conversation history.
 
@@ -551,7 +570,14 @@ def _format_trajectory(
 
     trajectory = "\n\n".join(formatted)
 
-    return header + "\n\n=== FULL AGENT TRAJECTORY ===\n\n" + trajectory
+    formatted_trace = header + "\n\n=== FULL AGENT TRAJECTORY ===\n\n" + trajectory
+    if max_total_chars is not None:
+        formatted_trace = _truncate_middle_text(
+            formatted_trace,
+            max_total_chars,
+            "agent trajectory",
+        )
+    return formatted_trace
 
 
 def _format_trajectory_for_reflector(
@@ -560,7 +586,12 @@ def _format_trajectory_for_reflector(
     instance_id: str,
 ) -> str:
     """Build the full reasoning trace shown to the reflector."""
-    return _format_trajectory(agent, exit_status, instance_id)
+    return _format_trajectory(
+        agent,
+        exit_status,
+        instance_id,
+        max_total_chars=_REFLECTOR_TRAJECTORY_MAX_CHARS,
+    )
 
 
 def _format_trajectory_for_curator(
@@ -574,6 +605,7 @@ def _format_trajectory_for_curator(
         exit_status,
         instance_id,
         redact_initial_user_for_curator=True,
+        max_total_chars=_CURATOR_TRAJECTORY_MAX_CHARS,
     )
 
 
@@ -1093,10 +1125,25 @@ class SWEBenchProGenerator(Generator):
             return "(empty)"
         return _strip_bullet_counts(playbook)
 
+    def get_predicted_answer_for_reflector(self, predicted_answer: str) -> str:
+        """Return a bounded patch copy for reflector prompts only."""
+        if not predicted_answer:
+            return predicted_answer
+        return _truncate_middle_text(
+            predicted_answer,
+            _REFLECTOR_PATCH_MAX_CHARS,
+            "predicted patch",
+        )
+
     def get_ground_truth_for_reflector(self, target: str) -> str:
         """Return only the gold patch, not the full SWE eval metadata blob."""
         meta = _load_transport_payload(target)
-        return meta.get("gold_patch", "") or "(ground truth patch not available)"
+        gold_patch = meta.get("gold_patch", "") or "(ground truth patch not available)"
+        return _truncate_middle_text(
+            gold_patch,
+            _REFLECTOR_PATCH_MAX_CHARS,
+            "ground truth patch",
+        )
 
     def get_question_context_for_curator(self, question: str, context: str) -> str:
         """Return a readable task summary instead of raw escaped JSON."""
@@ -1114,7 +1161,11 @@ class SWEBenchProGenerator(Generator):
         if metadata:
             lines.extend(["", "Task Metadata:"] + metadata)
 
-        return "\n".join(lines)
+        return _truncate_middle_text(
+            "\n".join(lines),
+            _CURATOR_CONTEXT_MAX_CHARS,
+            "question context",
+        )
 
     def should_learn_from_initially_correct_samples(self) -> bool:
         """SWE correctness is test-based and patches are non-unique.
